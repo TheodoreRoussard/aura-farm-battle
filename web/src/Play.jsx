@@ -38,8 +38,11 @@ export default function Play() {
   const boostOn = playerStore.boosted()
   const perTap = Math.round(tapValue(lv, boostOn))
   const inFlight = playerStore.optimisticTaps()
-  const total = projected(mine, live) + Math.round(playerStore.optimisticAura()) // optimiste : on n'attend pas la chaîne
   const confirmed = projected(mine, live) // aura vue on-chain : c'est elle que buy() compare au seuil
+  // Pendant le round : optimiste (on n'attend pas la chaîne). Round fini : les taps de la dernière seconde ne partiront
+  // jamais (ou seront refusés) → on affiche le résultat officiel, sinon l'aura confirmée, jamais un score gonflé.
+  const official = live.final?.round === live.game.round ? live.final.players.find((p) => p.a === me.address)?.total : undefined
+  const total = phase === 'over' ? (official ?? confirmed) : confirmed + Math.round(playerStore.optimisticAura())
   const boostLeftMs = Math.max(me.boostEnd - Date.now(), ((lv.boostUntil ?? 0) - live.head) * BLOCK_MS)
   const boostTotalMs = boostBlocks(lv.magnet) * BLOCK_MS
   const stage = stageOf(total)
@@ -417,7 +420,7 @@ function Leaderboard({ board, me, onClose }) {
 
 function NameForm({ initial, placeholder, onSubmit, onCancel }) {
   const [name, setName] = useState(initial)
-  const submit = () => onSubmit(name.trim() || placeholder)
+  const submit = () => onSubmit(name) // vide = garder le pseudo proposé
   return (
     <Center>
       <Brainrot stage={1} outline={3} className="bob mb-4 h-28 w-28" />

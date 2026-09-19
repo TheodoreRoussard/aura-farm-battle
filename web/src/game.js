@@ -161,7 +161,8 @@ export function createPlayer(liveStore) {
     error: null,
     address,
     name: localStorage.getItem('aura.name') || nameOf(address),
-    named: !!localStorage.getItem('aura.name'), // false → le téléphone demande un pseudo avant de jouer
+    custom: !!localStorage.getItem('aura.name'), // pseudo choisi (sinon : pseudo généré, unique grâce à son #XXX)
+    named: !!localStorage.getItem('aura.name') || localStorage.getItem('aura.named') === '1', // false → le téléphone demande un pseudo avant de jouer
     room: new URLSearchParams(location.search).get('room') ?? localStorage.getItem('aura.room') ?? '',
     balance: null, // MON du wallet jetable = "énergie"
     pendingTaps: 0, // taps pas encore envoyés
@@ -214,15 +215,16 @@ export function createPlayer(liveStore) {
     return body.skipped ? 'skipped' : 'sent'
   }
 
-  /** Envoie le pseudo choisi au serveur (signé par le wallet jetable). Sans effet si aucun pseudo choisi. */
+  /** Envoie le pseudo au serveur (signé par le wallet jetable) ; '' = pseudo généré. Sans effet avant le choix. */
   async function sendName() {
     if (!s.named) return
+    const name = s.custom ? s.name : ''
     try {
-      const signature = await account.signMessage({ message: nameMessage(s.name) })
+      const signature = await account.signMessage({ message: nameMessage(name) })
       await fetch(`${SERVER_URL}/name`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ address, name: s.name, signature }),
+        body: JSON.stringify({ address, name, signature }),
       })
     } catch {} // le pseudo généré reste affiché : pas bloquant pour jouer
   }
@@ -325,12 +327,13 @@ export function createPlayer(liveStore) {
 
   Object.assign(store, {
     boot,
-    /** Choisit (ou change) son pseudo. Renvoie false si le pseudo est vide après nettoyage. */
+    /** Choisit (ou change) son pseudo. Vide = garder le pseudo généré, en entier (le couper ferait perdre son #XXX). */
     setName(raw) {
       const name = cleanName(raw)
-      if (!name) return false
-      Object.assign(s, { name, named: true })
-      localStorage.setItem('aura.name', name)
+      Object.assign(s, { name: name || nameOf(address), custom: !!name, named: true })
+      if (name) localStorage.setItem('aura.name', name)
+      else localStorage.removeItem('aura.name')
+      localStorage.setItem('aura.named', '1')
       store.notify()
       if (s.phase === 'ready') sendName()
       return true

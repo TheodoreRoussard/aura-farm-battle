@@ -4,14 +4,16 @@
 //   2. indexeur en mémoire : une seule souscription monadLogs, rediffusée aux clients par WebSocket ;
 //   3. régie : lancer / arrêter un round depuis l'écran géant.
 // À héberger sur une machine qui reste allumée (laptop + cloudflared, Railway...) : pas en serverless.
+import fs from 'node:fs'
 import http from 'node:http'
+import path from 'node:path'
 import { encodeFunctionData, formatEther, isAddress, parseEther, verifyMessage } from 'viem'
 import { WebSocketServer } from 'ws'
 import { ABI, DRIP_ABI, GAS, dripGas } from '../shared/config.mjs'
 import { openFeed } from '../shared/feed.mjs'
 import { cleanName, nameMessage, nameOf } from '../shared/names.mjs'
 import { TxPump } from '../shared/pump.mjs'
-import { getAdmin, getClients, getNetwork, loadDeployment } from '../scripts/lib.mjs'
+import { ROOT, getAdmin, getClients, getNetwork, loadDeployment } from '../scripts/lib.mjs'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const ROOM_CODE = process.env.ROOM_CODE ?? 'AURA'
@@ -49,7 +51,21 @@ let lastFinal = null // renvoyé aux clients qui (re)chargent la page après la 
 const players = new Map() // adresse (minuscules) → { a, name, total, spent, rate, power, round, b }
 const perBlock = new Map() // blockId → { n, txs, taps } pour le compteur de débit
 const drips = new Map() // adresse → nombre de dotations
-const names = new Map() // adresse → pseudo choisi (le téléphone le renvoie à chaque démarrage)
+// adresse → pseudo choisi. Gardé sur disque : un redémarrage du serveur (tunnel, mise à jour) en plein jeu
+// ne doit pas remettre les noms générés sur l'écran géant (les téléphones ne renvoient le leur qu'au chargement).
+const NAMES_FILE = path.join(ROOT, `deployments/names-${net.chain.id}.json`)
+const names = new Map(Object.entries((() => {
+  try {
+    return JSON.parse(fs.readFileSync(NAMES_FILE, 'utf8'))
+  } catch {
+    return {}
+  }
+})()))
+let namesTimer = null
+const saveNames = () => {
+  clearTimeout(namesTimer)
+  namesTimer = setTimeout(() => fs.writeFile(NAMES_FILE, JSON.stringify(Object.fromEntries(names)), () => {}), 500)
+}
 
 // `p` = struct Player (snapshot) ou arguments de l'event PlayerUpdated (niveaux packés dans `extra`).
 const toPlayer = (a, p, b) => {
@@ -252,14 +268,17 @@ async function handleHttp(req, res) {
 
     if (url.pathname === '/name') {
       const address = String(body.address ?? '').toLowerCase()
-      const name = cleanName(body.name)
-      if (!isAddress(address) || !name) return send(400, { error: 'Pseudo invalide' })
+      const name = cleanName(body.name) // '' = revenir au pseudo généré
+      if (!isAddress(address)) return send(400, { error: 'Adresse invalide' })
       const ok = await verifyMessage({ address, message: nameMessage(name), signature: body.signature }).catch(() => false)
       if (!ok) return send(403, { error: 'Signature invalide' })
-      names.set(address, name)
+      if (name) names.set(address, name)
+      else names.delete(address)
+      saveNames()
+      const shown = name || nameOf(address)
       const p = players.get(address)
-      if (p) queue({ t: 'p', p: Object.assign(p, { name }) })
-      return send(200, { ok: true, name })
+      if (p) queue({ t: 'p', p: Object.assign(p, { name: shown }) })
+      return send(200, { ok: true, name: shown })
     }
 
     if (url.pathname === '/admin/check') {
