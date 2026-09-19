@@ -2,7 +2,7 @@
 //   /screen?room=AURA                → affichage seul
 //   /screen?room=AURA&token=SECRET   → + régie (lancer / arrêter un round)
 import QRCode from 'qrcode'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BLOCK_MS, GAS, stageOf } from '../../shared/config.mjs'
 import Brainrot from './Brainrot.jsx'
 import { SERVER_URL, blockState, createLive, ranking, roundPhase } from './game.js'
@@ -18,20 +18,25 @@ const MON_PER_TX = Number(GAS.tap) * 100e-9 // gas limit × base fee plancher (1
 const RIBBON = 60 // blocs affichés dans la frise (~18 s)
 const RIBBON_MIN_SCALE = 10 // hauteur max de la frise = au moins 10 tx par bloc
 const RIBBON_COLOR = { proposed: 'bg-offwhite', voted: 'bg-neon', finalized: 'bg-verde', future: 'bg-offwhite/10' }
-const ROW_PX = 64 // hauteur d'une ligne du classement, marge comprise
+const ROW_GAP_PX = 8 // space-y-2
+const ROW_PX = 56 + ROW_GAP_PX // ligne du classement (h-14) + marge
 
 export default function Screen() {
   const live = useStore(liveStore)
   const [qr, setQr] = useState(null)
   useEffect(() => void QRCode.toDataURL(JOIN_URL, { margin: 0, width: 320 }).then(setQr), [])
 
-  // Nombre de lignes du classement selon la hauteur de la fenêtre : jamais de ligne coupée en deux.
-  const rowsFor = () => Math.max(3, Math.floor((window.innerHeight - 330) / ROW_PX))
-  const [rows, setRows] = useState(rowsFor)
+  // Nombre de lignes du classement = ce qui tient dans la hauteur réellement disponible de la liste
+  // (mesurée, pas devinée) : jamais de ligne coupée en deux, quelle que soit la taille de la fenêtre.
+  const listRef = useRef(null)
+  const [rows, setRows] = useState(8)
   useEffect(() => {
-    const onResize = () => setRows(rowsFor())
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+    const el = listRef.current
+    const measure = () => setRows(Math.max(3, Math.floor((el.clientHeight + ROW_GAP_PX) / ROW_PX)))
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    measure()
+    return () => observer.disconnect()
   }, [])
 
   const phase = roundPhase(live)
@@ -57,14 +62,18 @@ export default function Screen() {
   const ribbonMax = Math.max(RIBBON_MIN_SCALE, ...slots.map((s) => s.txs))
 
   return (
-    <div className="bg-monad-dark grid h-dvh grid-cols-[1fr_19rem] gap-16 overflow-hidden px-14 py-12">
+    // min-h-dvh (et non h-dvh + overflow-hidden) : si le contenu dépasse la fenêtre, c'est la PAGE
+    // entière qui défile, avec une seule barre de défilement sur tout l'écran.
+    <div className="bg-monad-dark grid min-h-dvh grid-cols-[1fr_19rem] gap-16 px-14 py-12">
       <section className="flex min-h-0 flex-col">
         <header className="flex items-baseline justify-between">
           <h1 className="font-display text-4xl">Aura Farm Battle</h1>
           <Status phase={phase} game={game} head={head} blocksLeft={blocksLeft} official={official} />
         </header>
 
-        <ol className="mt-10 flex-1 space-y-2 overflow-hidden">
+        {/* contain:size → le contenu de la liste n'influence pas sa hauteur : elle remplit l'espace
+            restant, et c'est `rows` qui s'adapte (sinon la page grandirait avec le nombre de joueurs). */}
+        <ol ref={listRef} className="mt-10 min-h-48 flex-1 space-y-2 overflow-hidden [contain:size]">
           {board.slice(0, rows).map((p, i) => (
             <li key={p.a} className="relative flex h-14 items-center gap-4 overflow-hidden rounded-2xl bg-offwhite/5 px-5 text-lg">
               <div className="absolute inset-y-0 left-0 rounded-2xl bg-monad/55 transition-[width] duration-300" style={{ width: `${(p.score / maxScore) * 100}%` }} />
@@ -93,7 +102,7 @@ export default function Screen() {
         </div>
       </section>
 
-      <aside className="flex min-h-0 flex-col overflow-y-auto">
+      <aside className="flex flex-col">
         <div className="shrink-0 rounded-3xl bg-offwhite p-5 text-center text-ink">
           {qr && <img src={qr} alt="QR code pour rejoindre" className="mx-auto aspect-square max-h-[26vh] w-auto" />}
           <p className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] opacity-50">code</p>
