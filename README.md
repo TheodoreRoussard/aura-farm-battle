@@ -43,11 +43,17 @@ cd web && pnpm dev                                          # terminal 3
 3. **Go / no-go** : `pnpm load -- --players 5 --seconds 10` (≈ 0,8 MON, le reste est rapatrié).
    À lire dans le bilan : 0 tx abandonnée, 0 revert, taps envoyés = taps on-chain, erreurs RPC.
 4. Serveur sur une machine qui reste allumée (laptop + `cloudflared tunnel --url http://localhost:8787`, ou Railway).
-5. Front sur Vercel, variables `VITE_NETWORK=testnet` et `VITE_SERVER_URL=https://...`.
-   Attention : `web/` importe `../shared/`. Deux réglages possibles, **à vérifier par un premier déploiement** :
-   Root Directory = `web` avec l'option "Include source files outside of the Root Directory" activée,
-   ou Root Directory = racine du dépôt, build `pnpm -C web build`, output `web/dist`.
-   Un seul domaine stable pour le QR code : le wallet jetable vit dans le localStorage de CE domaine.
+5. Front sur Vercel : projet `aura-farm-battle` → https://aura-farm-battle.vercel.app (chaque push sur `main` redéploie).
+   Le projet est lié à la RACINE du dépôt (pas à `web/`) parce que `web/` importe `../shared/`, qui importe `viem`
+   installé à la racine ; tout le réglage est dans `vercel.json` (build `pnpm -C web build`, sortie `web/dist`,
+   réécriture de toutes les routes vers `index.html` pour que `/screen` et `/sprites` ne fassent pas 404).
+   Variables : `VITE_NETWORK=testnet` (déjà posée) et `VITE_SERVER_URL=https://...` une fois le serveur hébergé :
+   `printf 'https://mon-serveur' | vercel env add VITE_SERVER_URL production && vercel --prod`.
+   Les `VITE_*` sont figées AU BUILD : changer une variable sans redéployer ne change rien.
+   L'URL du serveur doit être en `https://` (donc `wss://`) : la page Vercel est en HTTPS et le navigateur
+   bloque tout appel `http://` / `ws://` depuis une page HTTPS ("mixed content").
+   Un seul domaine stable pour le QR code : le wallet jetable vit dans le localStorage de CE domaine
+   (jamais les URL de preview `aura-farm-battle-xxxx.vercel.app`).
 
 ## Voir les blocs
 

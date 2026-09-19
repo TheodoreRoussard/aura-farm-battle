@@ -10,7 +10,8 @@ import { TxPump } from '../../shared/pump.mjs'
 const NETWORK = import.meta.env.VITE_NETWORK ?? 'testnet'
 const lanHost = (url) => url.replace('127.0.0.1', location.hostname) // dev : téléphone sur le même réseau que le laptop
 export const NET = { ...NETWORKS[NETWORK], http: NETWORKS[NETWORK].http.map(lanHost) }
-export const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? `http://${location.hostname}:8787`
+// Même protocole que la page : en prod (HTTPS) le navigateur refuse tout appel http:// ou ws:// ("mixed content").
+export const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? `${location.protocol}//${location.hostname}:8787`
 
 const SEND_MARGIN_BLOCKS = 3 // on cesse d'envoyer 3 blocs avant la fin : un tap en retard revert ET paie toute sa gas limit
 const UNCONFIRMED_TTL = 6000
@@ -80,7 +81,13 @@ export function createLive() {
   }
 
   const connect = () => {
-    const ws = new WebSocket(SERVER_URL.replace(/^http/, 'ws'))
+    let ws
+    try {
+      ws = new WebSocket(SERVER_URL.replace(/^http/, 'ws'))
+    } catch (e) {
+      // ws:// depuis une page HTTPS : le constructeur lève une SecurityError. Sans ce garde-fou, page blanche.
+      return console.error(`[live] VITE_SERVER_URL doit être en https:// — ${e.message}`)
+    }
     ws.onopen = () => (retry = 0)
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data)
