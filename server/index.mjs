@@ -7,7 +7,7 @@
 import http from 'node:http'
 import { encodeFunctionData, formatEther, isAddress, parseEther, verifyMessage } from 'viem'
 import { WebSocketServer } from 'ws'
-import { ABI, GAS } from '../shared/config.mjs'
+import { ABI, DRIP_ABI, GAS, dripGas } from '../shared/config.mjs'
 import { openFeed } from '../shared/feed.mjs'
 import { cleanName, nameMessage, nameOf } from '../shared/names.mjs'
 import { TxPump } from '../shared/pump.mjs'
@@ -19,12 +19,19 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? 'change-moi'
 const DRIP = parseEther(process.env.DRIP_MON ?? '0.15') // ≈ 30 tx de tap ; petites doses = peu de MON dormants sur les téléphones
 const DRIP_MAX_PER_ADDRESS = Number(process.env.DRIP_MAX_PER_ADDRESS ?? 4) // plafond par joueur = DRIP_MON × ce nombre
 let flushMs = Number(process.env.FLUSH_MS ?? 300) // période d'envoi des taps côté téléphone (300 = 1 tx par bloc)
-let dripBudget = parseEther(process.env.DRIP_BUDGET_MON ?? '30') // plafond global : protège la réserve
+const DRIP_BUDGET = parseEther(process.env.DRIP_BUDGET_MON ?? '30') // plafond de MON distribués par session du serveur
+let dripSpent = 0n
+const DRIP_BATCH_MS = 400 // les demandes de dotation sont regroupées : une seule tx sert tous les joueurs en attente
+const DRIP_BATCH_MAX = 20 // 20 nouveaux comptes ≈ 0,9 M gas : le solde admin doit couvrir limite × maxFee (≈ 0,13 MON) pour que la tx soit incluse
 
 const net = getNetwork()
 const admin = getAdmin(net)
 const { publicClient } = getClients(net, admin)
-const farm = loadDeployment(net).address
+const { address: farm, drip: dripContract } = loadDeployment(net)
+if (!dripContract) {
+  console.error(`Distributeur AuraDrip absent du déploiement : pnpm deploy:${net.name} -- --drip-only`)
+  process.exit(1)
+}
 const adminPump = await new TxPump({ account: admin, chainId: net.chain.id, rpcUrls: net.http }).init()
 const call = (functionName, args = []) => encodeFunctionData({ abi: ABI, functionName, args })
 
@@ -77,7 +84,44 @@ async function loadSnapshot(blockTag = 'latest') {
 
 for (const p of await loadSnapshot()) players.set(p.a, p)
 console.log(`[boot] ${net.chain.name} — contrat ${farm} — round ${game.round} — ${players.size} joueurs`)
-console.log(`[boot] admin ${admin.address} : ${formatEther(await adminPump.balance())} MON — code salle "${ROOM_CODE}"`)
+// Les MON des joueurs sont dans le contrat AuraDrip, pas sur le wallet admin : sous 10 MON ("reserve balance"),
+// un compte Monad ne peut envoyer de la valeur qu'une fois tous les 3 blocs — l'admin ne paie donc que du gas.
+// File des dotations : { address, fresh, resolve, reject }. Vidée toutes les DRIP_BATCH_MS en UNE transaction.
+const dripQueue = []
+const dripPending = new Set() // wallets dont la demande de dotation est en cours de traitement
+// Le solde du distributeur est relu régulièrement : on peut le recharger en cours de partie (faucet → adresse du
+// contrat, ou `pnpm drip -- fund`) sans redémarrer le serveur.
+let dripBalance = await publicClient.getBalance({ address: dripContract })
+setInterval(() => publicClient.getBalance({ address: dripContract }).then((b) => (dripBalance = b)).catch(() => {}), 5000)
+const dripLeft = () => {
+  const cap = DRIP_BUDGET - dripSpent
+  const onchain = dripBalance - BigInt(dripQueue.length) * DRIP
+  return cap < onchain ? cap : onchain
+}
+console.log(`[boot] admin ${admin.address} : ${formatEther(await adminPump.balance())} MON (gas) — distributeur ${formatEther(dripBalance)} MON — code salle "${ROOM_CODE}"`)
+if (dripBalance < DRIP) console.warn('[boot] ⚠ distributeur vide : aucun joueur ne pourra être alimenté (pnpm drip -- fund <MON>)')
+
+setInterval(async () => {
+  if (!dripQueue.length) return
+  const batch = dripQueue.splice(0, DRIP_BATCH_MAX)
+  try {
+    const fresh = batch.filter((b) => b.fresh).length
+    const hash = await adminPump.send({
+      to: dripContract,
+      data: encodeFunctionData({ abi: DRIP_ABI, functionName: 'drip', args: [batch.map((b) => b.address), DRIP] }),
+      gas: dripGas(fresh, batch.length - fresh),
+    })
+    dripBalance -= DRIP * BigInt(batch.length) // optimiste ; la relecture périodique fait foi
+    console.log(`[drip] ${formatEther(DRIP)} MON × ${batch.length} (${batch.map((b) => nameOf(b.address)).join(', ')}) — reste ${formatEther(dripLeft())} MON à distribuer`)
+    for (const b of batch) b.resolve(hash)
+  } catch (e) {
+    for (const b of batch) {
+      drips.set(b.address, (drips.get(b.address) ?? 1) - 1) // dotation non envoyée : on la recrédite
+      dripSpent -= DRIP
+      b.reject(e)
+    }
+  }
+}, DRIP_BATCH_MS)
 
 // ───────────────────────────────── Diffusion WebSocket ─────────────────────────────────
 const server = http.createServer(handleHttp)
@@ -188,20 +232,22 @@ async function handleHttp(req, res) {
       if (!isAddress(address)) return send(400, { error: 'Adresse invalide' })
       const count = drips.get(address) ?? 0
       if (count >= DRIP_MAX_PER_ADDRESS) return send(429, { error: 'Dotation épuisée pour ce wallet' })
-      if (dripBudget < DRIP) return send(503, { error: 'Réserve de MON épuisée' })
-      // Réservé AVANT tout await : sinon plusieurs requêtes simultanées du même téléphone passent
-      // toutes le contrôle du plafond (vu en local : 15 dotations au lieu de 4).
-      drips.set(address, count + 1)
-      dripBudget -= DRIP
-      const balance = await publicClient.getBalance({ address })
-      if (balance > DRIP / 3n) {
-        drips.set(address, drips.get(address) - 1)
-        dripBudget += DRIP
-        return send(200, { ok: true, skipped: true, balance: formatEther(balance) })
+      if (dripLeft() < DRIP) return send(503, { error: 'Réserve de MON épuisée' })
+      // Une seule demande à la fois par wallet, réservée AVANT tout await : sinon plusieurs requêtes
+      // simultanées du même téléphone passent toutes le contrôle du plafond (vu en local : 15 dotations au lieu de 4).
+      if (dripPending.has(address) || dripQueue.some((b) => b.address === address)) return send(200, { ok: true, queued: true })
+      dripPending.add(address)
+      try {
+        const balance = await publicClient.getBalance({ address })
+        if (balance > DRIP / 3n) return send(200, { ok: true, skipped: true, balance: formatEther(balance) })
+        drips.set(address, count + 1)
+        dripSpent += DRIP
+        // Créer un compte coûte 25 000 gas de plus que recharger un compte existant : la limite de gas en dépend.
+        const hash = await new Promise((resolve, reject) => dripQueue.push({ address, fresh: balance === 0n, resolve, reject }))
+        return send(200, { ok: true, hash, amount: formatEther(DRIP) })
+      } finally {
+        dripPending.delete(address)
       }
-      const hash = await adminPump.send({ to: address, value: DRIP, gas: GAS.transfer })
-      console.log(`[drip] ${formatEther(DRIP)} MON → ${address} (${nameOf(address)}) — reste ${formatEther(dripBudget)} MON de budget`)
-      return send(200, { ok: true, hash, amount: formatEther(DRIP) })
     }
 
     if (url.pathname === '/name') {
@@ -222,7 +268,7 @@ async function handleHttp(req, res) {
       const data = url.pathname === '/admin/stop'
         ? call('stopRound')
         : call('startRound', [Number(body.delay ?? 17), Number(body.duration ?? 100), Number(body.maxPerTx ?? 20)])
-      const hash = await adminPump.send({ to: farm, data, gas: 60_000n })
+      const hash = await adminPump.send({ to: farm, data, gas: GAS.startRound })
       return send(200, { ok: true, hash })
     }
     return send(404, { error: 'not found' })

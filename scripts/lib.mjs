@@ -54,8 +54,8 @@ export function loadDeployment(net) {
   return JSON.parse(fs.readFileSync(f, 'utf8'))
 }
 
-export function loadArtifact() {
-  const f = path.join(ROOT, 'contracts/out/AuraFarm.sol/AuraFarm.json')
+export function loadArtifact(name = 'AuraFarm') {
+  const f = path.join(ROOT, `contracts/out/${name}.sol/${name}.json`)
   if (!fs.existsSync(f)) {
     console.error('Artefact introuvable : lance `cd contracts && forge build`.')
     process.exit(1)
