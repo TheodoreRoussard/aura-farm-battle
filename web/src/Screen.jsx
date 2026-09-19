@@ -20,6 +20,9 @@ const RIBBON_MIN_SCALE = 10 // hauteur max de la frise = au moins 10 tx par bloc
 const RIBBON_COLOR = { proposed: 'bg-offwhite', voted: 'bg-neon', finalized: 'bg-verde', future: 'bg-offwhite/10' }
 const ROW_GAP_PX = 8 // space-y-2
 const ROW_PX = 56 + ROW_GAP_PX // ligne du classement (h-14) + marge
+const MEDAL = ['🥇', '🥈', '🥉']
+const PODIUM = ['bg-gold text-ink', 'bg-silver text-ink', 'bg-bronze text-ink'] // pastille de rang du top 3
+const BAR = ['bg-gold/45', 'bg-silver/40', 'bg-bronze/40']
 
 export default function Screen() {
   const live = useStore(liveStore)
@@ -67,26 +70,37 @@ export default function Screen() {
     <div className="bg-monad-dark grid min-h-dvh grid-cols-[1fr_19rem] gap-16 px-14 py-12">
       <section className="flex min-h-0 flex-col">
         <header className="flex items-baseline justify-between">
-          <h1 className="font-display text-4xl">Aura Farm Battle</h1>
+          <h1 className="font-display text-outline text-5xl">Aura Farm <span className="text-neon">Battle</span></h1>
           <Status phase={phase} game={game} head={head} blocksLeft={blocksLeft} official={official} />
         </header>
 
         {/* contain:size → le contenu de la liste n'influence pas sa hauteur : elle remplit l'espace
             restant, et c'est `rows` qui s'adapte (sinon la page grandirait avec le nombre de joueurs). */}
-        <ol ref={listRef} className="mt-10 min-h-48 flex-1 space-y-2 overflow-hidden [contain:size]">
-          {board.slice(0, rows).map((p, i) => (
-            <li key={p.a} className="relative flex h-14 items-center gap-4 overflow-hidden rounded-2xl bg-offwhite/5 px-5 text-lg">
-              <div className="absolute inset-y-0 left-0 rounded-2xl bg-monad/55 transition-[width] duration-300" style={{ width: `${(p.score / maxScore) * 100}%` }} />
-              <span className="relative w-6 text-right tabular-nums opacity-60">{i + 1}</span>
-              <Brainrot stage={stageOf(p.score)} outline={1} className="relative h-9 w-9 shrink-0" />
-              <span className="relative flex-1 truncate">{p.name}</span>
-              {p.speed > 25 && <span className="relative rounded bg-rosso px-1.5 py-0.5 text-[11px] font-bold text-ink">SUS</span>}
-              <span className="relative w-20 text-right text-sm tabular-nums opacity-50">{p.speed ?? 0} / s</span>
-              <span className="font-display relative w-24 text-right text-2xl tabular-nums">{p.score.toLocaleString('fr-FR')}</span>
-            </li>
-          ))}
-          {!board.length && <p className="pt-32 text-center text-2xl opacity-50">Scanne le QR code pour rejoindre la partie</p>}
-        </ol>
+        <div className="relative mt-10 min-h-48 flex-1">
+          <ol ref={listRef} className="absolute inset-0 overflow-hidden">
+            {board.slice(0, rows).map((p, i) => (
+              <li key={p.a} className="rank-row" style={{ transform: `translateY(${i * ROW_PX}px)` }}>
+                <div className={`relative flex h-14 items-center gap-4 overflow-hidden rounded-2xl px-5 text-lg ${i < 3 ? 'bg-offwhite/10' : 'bg-offwhite/5'}`}>
+                  <div className={`absolute inset-y-0 left-0 rounded-2xl transition-[width] duration-300 ${BAR[i] ?? 'bg-monad/55'}`} style={{ width: `${(p.score / maxScore) * 100}%` }} />
+                  <span className={`font-display relative grid h-8 w-8 shrink-0 place-items-center rounded-full text-base tabular-nums ${PODIUM[i] ?? 'opacity-60'}`}>{i + 1}</span>
+                  <Brainrot stage={stageOf(p.score)} outline={1} className="relative h-9 w-9 shrink-0" />
+                  <span className={`relative flex-1 truncate ${i === 0 ? 'font-bold' : ''}`}>{p.name}</span>
+                  {p.speed > 25 && <span className="relative rounded bg-rosso px-1.5 py-0.5 text-[11px] font-bold text-ink">SUS</span>}
+                  <span className="relative w-20 text-right text-sm tabular-nums opacity-50">{p.speed ?? 0} / s</span>
+                  <span className="font-display relative w-24 text-right text-2xl tabular-nums">{p.score.toLocaleString('fr-FR')}</span>
+                </div>
+              </li>
+            ))}
+          </ol>
+          {!board.length && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+              <Brainrot stage={5} outline={3} className="bob h-40 w-40" />
+              <p className="font-display text-outline mt-6 text-4xl">Scanne le QR code pour rejoindre</p>
+              <p className="mt-2 opacity-60">ton wallet est créé automatiquement, aucun MON à avoir</p>
+            </div>
+          )}
+          <Overlay phase={phase} game={game} head={head} board={board} official={official} />
+        </div>
 
         {/* Ruban des blocs : une case = un bloc de 0,3 s, hauteur = transactions du jeu dans ce bloc */}
         <div className="mt-8 shrink-0">
@@ -103,14 +117,14 @@ export default function Screen() {
       </section>
 
       <aside className="flex flex-col">
-        <div className="shrink-0 rounded-3xl bg-offwhite p-5 text-center text-ink">
+        <div className="shrink-0 rounded-3xl border-b-8 border-ink/30 bg-offwhite p-5 text-center text-ink">
           {qr && <img src={qr} alt="QR code pour rejoindre" className="mx-auto aspect-square max-h-[26vh] w-auto" />}
           <p className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] opacity-50">code</p>
           <p className="font-display text-3xl tracking-widest">{ROOM || '—'}</p>
         </div>
 
         <div className="mt-10">
-          <p className="font-display text-8xl leading-none tabular-nums">{tps.toFixed(0)}</p>
+          <p className="font-display text-outline text-9xl leading-none tabular-nums text-neon">{tps.toFixed(0)}</p>
           <p className="label mt-2">transactions par seconde</p>
         </div>
 
@@ -132,11 +146,43 @@ export default function Screen() {
 }
 
 function Status({ phase, game, head, blocksLeft, official }) {
-  const cls = 'text-right text-xl font-semibold tabular-nums'
-  if (phase === 'countdown') return <p className={`${cls} text-neon`}>Départ dans {Math.ceil(((game.startBlock - head) * BLOCK_MS) / 1000)} s</p>
-  if (phase === 'live') return <p className={cls}>Round {game.round} · fin dans {blocksLeft} blocs</p>
-  if (phase === 'over') return <p className={`${cls} ${official ? 'text-verde' : 'opacity-70'}`}>{official ? `Round ${game.round} finalisé` : 'Finalisation en cours'}</p>
-  return <p className={`${cls} opacity-50`}>En attente</p>
+  const cls = 'rounded-full px-5 py-2 text-right text-xl font-bold tabular-nums'
+  if (phase === 'countdown') return <p className={`${cls} bg-neon text-ink`}>Départ dans {Math.ceil(((game.startBlock - head) * BLOCK_MS) / 1000)} s</p>
+  if (phase === 'live') return <p className={`${cls} bg-rosso/90 text-ink`}>● LIVE · round {game.round} · {(blocksLeft * BLOCK_MS / 1000).toFixed(0)} s</p>
+  if (phase === 'over') return <p className={`${cls} ${official ? 'bg-verde text-ink' : 'bg-offwhite/10 opacity-80'}`}>{official ? `Round ${game.round} finalisé` : 'Finalisation en cours'}</p>
+  return <p className={`${cls} bg-offwhite/10 opacity-60`}>En attente</p>
+}
+
+/** Décompte géant avant le départ, puis podium du round quand le résultat est officiel. */
+function Overlay({ phase, game, head, board, official }) {
+  if (phase === 'countdown') {
+    const secs = Math.max(1, Math.ceil(((game.startBlock - head) * BLOCK_MS) / 1000))
+    return (
+      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-3xl bg-monad-deep/80 backdrop-blur-sm">
+        <p className="label">round {game.round} · prêts ?</p>
+        <p key={secs} className="count-in font-display text-outline text-[16rem] leading-none text-neon">{secs}</p>
+      </div>
+    )
+  }
+  if (phase === 'over' && official && board.length) {
+    const [first, ...rest] = board.slice(0, 3)
+    return (
+      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-3xl bg-monad-deep/90 backdrop-blur-sm">
+        <div className="rise-in flex flex-col items-center">
+          <p className="label">vainqueur du round {game.round}</p>
+          <Brainrot stage={stageOf(first.score)} outline={4} className="bob mt-4 h-56 w-56" />
+          <p className="font-display text-outline mt-4 text-6xl">🥇 {first.name}</p>
+          <p className="font-display mt-2 text-4xl text-neon tabular-nums">{first.score.toLocaleString('fr-FR')} aura</p>
+          <div className="mt-8 flex gap-10 text-2xl">
+            {rest.map((p, i) => (
+              <p key={p.a}>{MEDAL[i + 1]} {p.name} <span className="font-display tabular-nums opacity-70">{p.score.toLocaleString('fr-FR')}</span></p>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+  return null
 }
 
 const Line = ({ label, value }) => (
@@ -177,7 +223,7 @@ function Controls({ phase }) {
       {running ? (
         <button onClick={() => post('/admin/stop', {})} className="w-full rounded-full bg-offwhite/10 py-3 text-sm font-semibold">Arrêter le round</button>
       ) : (
-        <button onClick={start} className="w-full rounded-full bg-offwhite py-3 text-sm font-semibold text-ink">Lancer un round</button>
+        <button onClick={start} className="btn-chunky w-full bg-neon py-3 text-base font-bold text-ink">Lancer un round</button>
       )}
       {msg && <p className="text-xs text-rosso">{msg}</p>}
     </div>

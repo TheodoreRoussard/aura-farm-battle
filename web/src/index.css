@@ -2,7 +2,10 @@
 
 /* Palette officielle Monad. Le jaune "neon" sert uniquement d'accent (mes blocs, progression). */
 @theme {
-  --font-display: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Lilita One', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --color-gold: #ffd34d;
+  --color-silver: #d5dbe8;
+  --color-bronze: #e99b5c;
   --color-monad: #836ef9; /* Monad Purple */
   --color-monad-deep: #200052; /* Monad Blue (violet très sombre) */
   --color-monad-berry: #a0055d; /* Monad Berry */
@@ -32,11 +35,13 @@ body {
   touch-action: manipulation; /* pas de zoom au double tap */
 }
 
-/* Titres et chiffres : même police que le texte, en très gras et resserrée. */
+/* Titres et chiffres : police "jeu" (Lilita One, repli système en très gras si hors-ligne). */
 .font-display {
+  font-family: var(--font-display);
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: 0.01em;
 }
+.text-outline { -webkit-text-stroke: 0; text-shadow: 0 3px 0 rgba(20, 0, 60, 0.55), 0 0 24px rgba(20, 0, 60, 0.35); }
 .label {
   font-size: 0.6875rem;
   font-weight: 600;
@@ -99,3 +104,83 @@ body {
   100% { transform: scale(1); }
 }
 .block-in { animation: blockIn 0.35s ease-out; }
+
+/* ───────── Game feel ───────── */
+
+/* Personnage qui respire au repos */
+@keyframes bob {
+  0%, 100% { transform: translateY(0) rotate(-1.5deg); }
+  50% { transform: translateY(-10px) rotate(1.5deg); }
+}
+.bob { animation: bob 2.4s ease-in-out infinite; }
+
+/* Halo d'aura derrière le personnage : grossit et rayonne avec le palier (--lvl 0..5) */
+.aura-halo {
+  position: absolute; left: 50%; top: 50%; pointer-events: none;
+  width: calc(15rem + var(--lvl) * 1.6rem); aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(244, 240, 106, calc(0.28 + var(--lvl) * 0.07)) 0%, rgba(255, 255, 255, 0.10) 40%, transparent 68%);
+  animation: haloPulse 1.8s ease-in-out infinite;
+}
+.aura-rays {
+  position: absolute; left: 50%; top: 50%; pointer-events: none;
+  width: calc(17rem + var(--lvl) * 2.2rem); aspect-ratio: 1;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 255, 255, 0.16) 0deg 8deg, transparent 8deg 24deg);
+  -webkit-mask-image: radial-gradient(circle, transparent 22%, #000 40%, transparent 70%);
+  mask-image: radial-gradient(circle, transparent 22%, #000 40%, transparent 70%);
+  animation: spin 14s linear infinite;
+}
+@keyframes haloPulse { 50% { transform: translate(-50%, -50%) scale(1.08); opacity: 0.8; } }
+@keyframes spin { to { rotate: 360deg; } }
+
+/* Compteur d'aura : petit rebond à chaque tap */
+@keyframes bump { 0% { transform: scale(1.14); } 100% { transform: scale(1); } }
+.bump { animation: bump 0.12s ease-out; }
+
+/* Particules : dérive latérale aléatoire (--dx) */
+@keyframes floatUp2 {
+  from { transform: translate(-50%, 0) scale(0.9); opacity: 1; }
+  to { transform: translate(calc(-50% + var(--dx, 0px)), -140px) scale(1.35); opacity: 0; }
+}
+.particle2 { position: absolute; pointer-events: none; animation: floatUp2 0.8s ease-out forwards; text-shadow: 0 2px 0 rgba(20, 0, 60, 0.6); }
+
+/* Onde de choc au point de contact */
+@keyframes ripple { from { transform: translate(-50%, -50%) scale(0.2); opacity: 0.7; } to { transform: translate(-50%, -50%) scale(1.6); opacity: 0; } }
+.ripple { position: absolute; width: 5rem; height: 5rem; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.8); pointer-events: none; animation: ripple 0.45s ease-out forwards; }
+
+/* Boutons "jeu" : relief + enfoncement */
+.btn-chunky {
+  border-radius: 1.1rem;
+  border-bottom: 5px solid rgba(20, 0, 60, 0.45);
+  transition: transform 0.08s, border-bottom-width 0.08s, filter 0.15s;
+}
+.btn-chunky:active:not(:disabled) { transform: translateY(3px); border-bottom-width: 2px; }
+.btn-ready { background: linear-gradient(180deg, #fff7a8, #f4f06a); color: #2a1a00; animation: readyGlow 1.2s ease-in-out infinite; }
+@keyframes readyGlow { 50% { box-shadow: 0 0 22px 2px rgba(244, 240, 106, 0.55); } }
+
+/* Décompte plein écran */
+@keyframes countIn { 0% { transform: scale(2.4); opacity: 0; } 30% { transform: scale(1); opacity: 1; } 100% { transform: scale(0.85); opacity: 0.9; } }
+.count-in { animation: countIn 1s ease-out; }
+@keyframes goIn { 0% { transform: scale(0.4) rotate(-6deg); opacity: 0; } 25% { transform: scale(1.15) rotate(2deg); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
+.go-in { animation: goIn 0.9s ease-out forwards; }
+
+/* Apparition d'un écran de résultat */
+@keyframes riseIn { from { transform: translateY(24px) scale(0.96); opacity: 0; } to { transform: none; opacity: 1; } }
+.rise-in { animation: riseIn 0.5s cubic-bezier(0.2, 1.2, 0.4, 1) both; }
+
+/* Barre de progression rayée qui défile */
+.stripes {
+  background-image: linear-gradient(115deg, rgba(255, 255, 255, 0.28) 25%, transparent 25% 50%, rgba(255, 255, 255, 0.28) 50% 75%, transparent 75%);
+  background-size: 18px 18px; animation: stripes 0.8s linear infinite;
+}
+@keyframes stripes { to { background-position: 18px 0; } }
+
+/* Ligne du classement écran géant : positionnée par translateY → les dépassements glissent */
+.rank-row { position: absolute; left: 0; right: 0; transition: transform 0.55s cubic-bezier(0.3, 1.1, 0.4, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .bob, .aura-halo, .aura-rays, .btn-ready, .stripes { animation: none; }
+}
