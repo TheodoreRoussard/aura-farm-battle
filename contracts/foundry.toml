@@ -1,0 +1,19 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc = "0.8.30"
+optimizer = true
+optimizer_runs = 1000000   # tap() est appelé des milliers de fois : on optimise le coût d'exécution
+bytecode_hash = "none"
+use_literal_content = true
+
+# Exécution locale avec le barème de gas Monad (MIP-8, precompiles...) — Foundry >= 1.8
+network = "monad"
+
+# NB : ne PAS mettre eth-rpc-url ici, sinon `forge test` tourne en fork du testnet (lent + RPC).
+[rpc_endpoints]
+monad_testnet = "https://testnet-rpc.monad.xyz"
+
+[lint]
+lint_on_build = false

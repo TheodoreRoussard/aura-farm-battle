@@ -1,0 +1,19 @@
+{
+  "name": "aura-farm",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:contracts": "cd contracts && forge test",
+    "anvil": "anvil --network monad --block-time 1",
+    "deploy:local": "node scripts/deploy.mjs --local",
+    "deploy:testnet": "node scripts/deploy.mjs",
+    "load": "node scripts/load.mjs",
+    "server": "node server/index.mjs",
+    "round": "node scripts/round.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.1",
+    "viem": "^2.56.8",
+    "ws": "^8.21.3"
+  }
+}

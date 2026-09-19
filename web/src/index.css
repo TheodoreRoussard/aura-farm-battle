@@ -1,0 +1,63 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-display: 'Impact', 'Haettenschweiler', 'Arial Narrow Bold', sans-serif;
+  --color-verde: #00e05a;
+  --color-rosso: #ff2d3f;
+  --color-neon: #f6ff00;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: #07060d;
+  color: white;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; /* pas de zoom au double tap */
+}
+
+.bg-tricolore {
+  background:
+    radial-gradient(circle at 50% 35%, rgba(246, 255, 0, 0.18), transparent 55%),
+    linear-gradient(100deg, rgba(0, 224, 90, 0.35), rgba(255, 255, 255, 0.06) 50%, rgba(255, 45, 63, 0.35)), #07060d;
+}
+.text-stroke {
+  -webkit-text-stroke: 2px black;
+  paint-order: stroke fill;
+  text-shadow: 3px 3px 0 #000;
+}
+
+@keyframes floatUp {
+  from { transform: translate(-50%, 0) scale(1) rotate(var(--rot)); opacity: 1; }
+  to { transform: translate(-50%, -140px) scale(1.6) rotate(var(--rot)); opacity: 0; }
+}
+.particle { position: absolute; pointer-events: none; animation: floatUp 0.7s ease-out forwards; }
+
+@keyframes shake {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  20% { transform: translate(-8px, 4px) rotate(-3deg); }
+  40% { transform: translate(8px, -6px) rotate(3deg); }
+  60% { transform: translate(-6px, -4px) rotate(-2deg); }
+  80% { transform: translate(6px, 6px) rotate(2deg); }
+}
+.shake { animation: shake 0.45s linear 2; }
+
+@keyframes pop {
+  0% { transform: translate(-50%, -50%) scale(0.2) rotate(-12deg); opacity: 0; }
+  20% { transform: translate(-50%, -50%) scale(1.25) rotate(-6deg); opacity: 1; }
+  80% { transform: translate(-50%, -50%) scale(1) rotate(-6deg); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.4) rotate(-6deg); opacity: 0; }
+}
+.pop { animation: pop 1.4s ease-out forwards; }
+
+@keyframes squish { 50% { transform: scale(0.9); } }
+.squish { animation: squish 0.09s ease-out; }
