@@ -184,6 +184,9 @@ export function createPlayer(liveStore) {
     },
   })
 
+  // Diagnostic depuis la console du navigateur : __aura.stats() → compteurs et erreurs RPC de la pompe.
+  window.__aura = { address, stats: () => ({ ...pump.stats, inflight: pump.pending, phase: s.phase }) }
+
   const fail = (e) => {
     s.phase = 'error'
     s.error = e.message ?? String(e)
@@ -222,13 +225,19 @@ export function createPlayer(liveStore) {
         // Règle Monad (reserve balance) : le consensus valide les soldes sur un état en retard de
         // k = 3 blocs → un compte fraîchement alimenté attend ~1,2 s avant sa première transaction.
         setPhase('warming')
-        await sleep(1500)
+        await sleep(2500) // 1,2 s en théorie ; marge large : une tx partie trop tôt est écartée sans erreur, puis perdue
       }
-      const onchain = await publicClient.readContract({ address: live.farm ?? (await waitFarm()), abi: ABI, functionName: 'players', args: [address] })
-      if (onchain[4] === 0) {
+      // L'inscription est vérifiée SUR LA CHAÎNE (power > 0), pas déduite de l'envoi : un join() perdu
+      // laisserait le joueur taper dans le vide (chaque tap annulé par le contrat, gas payé quand même).
+      const farm = live.farm ?? (await waitFarm())
+      const joined = async () => (await publicClient.readContract({ address: farm, abi: ABI, functionName: 'players', args: [address] }))[4] !== 0
+      for (let attempt = 1; !(await joined()); attempt++) {
+        if (attempt > 3) throw new Error(`Inscription on-chain impossible (${Object.keys(pump.stats.rpcErrors).join(' ; ') || 'transaction jamais incluse'})`)
         setPhase('joining')
-        await pump.send({ to: live.farm, data: call('join'), gas: GAS.join })
-        if (!(await pump.drain(10000))) throw new Error('join() non confirmé')
+        // +1 gas par essai : la tx change de hash, sinon le RPC répond "déjà connue" et ne la rediffuse pas.
+        await pump.send({ to: farm, data: call('join'), gas: GAS.join + BigInt(attempt - 1) })
+        await pump.drain(10000)
+        await sleep(700) // le temps que l'état "latest" du RPC reflète l'inscription
       }
       setPhase('ready')
     } catch (e) {

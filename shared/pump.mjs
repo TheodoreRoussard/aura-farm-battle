@@ -113,11 +113,13 @@ export class TxPump {
     return BigInt(await this._rpc('eth_getBalance', [this.account.address, 'latest']))
   }
 
-  /** Attend que toutes les tx en vol soient incluses (ou abandonnées). */
+  /** Attend que toutes les tx en vol soient incluses. Renvoie false si l'une d'elles a été abandonnée
+   *  par le chien de garde pendant l'attente (file vide ≠ tout est passé) ou si le délai est dépassé. */
   async drain(timeoutMs = 15000) {
     const t0 = Date.now()
+    const dropped = this.stats.dropped
     while (this.inflight.size > 0 && Date.now() - t0 < timeoutMs) await new Promise((r) => setTimeout(r, 200))
-    return this.inflight.size === 0
+    return this.inflight.size === 0 && this.stats.dropped === dropped
   }
 
   // ───────────────────────────────── interne ─────────────────────────────────

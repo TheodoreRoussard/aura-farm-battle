@@ -13,9 +13,9 @@ Téléphones (web/)  ── tx signées en local ──▶  RPC Monad testnet  �
 
 | Dossier | Rôle |
 |---|---|
-| `contracts/` | `AuraFarm.sol` + tests Foundry (`network = "monad"` → barème de gas Monad / MIP-8) |
+| `contracts/` | `AuraFarm.sol` (le jeu) + `AuraDrip.sol` (distributeur de MON) + tests Foundry (`network = "monad"` → barème de gas Monad / MIP-8) |
 | `shared/` | code commun front / serveur / scripts : config + ABI, `TxPump` (nonces locaux), `openFeed` (monadLogs) |
-| `scripts/` | `deploy`, `gas` (mesure), `load` (test de charge), `round` (régie en CLI) |
+| `scripts/` | `deploy`, `gas` (mesure), `load` (test de charge), `round` (régie en CLI), `drip` (solde / recharge du distributeur), `prod` (mise en prod) |
 | `server/` | dotation de MON, classement en mémoire, lancement des rounds |
 | `web/` | Vite + React + Tailwind : `/` = téléphone, `/screen` = écran géant |
 
@@ -38,17 +38,29 @@ cd web && pnpm dev                                          # terminal 3
 
 ## Passer sur le testnet
 
+État au 2026-09-19 : **déployé et validé sur le testnet** — AuraFarm `0x066b11d6732812d92338b89ed5fdd3db42f8a1f5`,
+AuraDrip `0x29d00269588c49353cf57e4e18d03983db1a2d6a` (`deployments/10143.json`), admin `0x538fECF0D180cBd97752F4b51b5BdEbC023119Bb`.
+Pour repartir de zéro :
+
 1. `cast wallet new` → mets la clé dans `.env` (`ADMIN_PRIVATE_KEY`), envoie-lui tes MON du faucet.
-2. `pnpm deploy:testnet` puis la commande `forge verify-contract ...` affichée (Sourcify, sans clé API).
-3. **Go / no-go** : `pnpm load -- --players 5 --seconds 10` (≈ 0,8 MON, le reste est rapatrié).
-   À lire dans le bilan : 0 tx abandonnée, 0 revert, taps envoyés = taps on-chain, erreurs RPC.
-4. Serveur sur une machine qui reste allumée (laptop + `cloudflared tunnel --url http://localhost:8787`, ou Railway).
+2. `pnpm deploy:testnet` : déploie AuraFarm puis AuraDrip, et verse dans le distributeur `DRIP_BUDGET_MON` (plafonné au
+   solde moins 0,6 MON gardés pour le gas). `-- --drip-only` ne redéploie que le distributeur. Puis lance les commandes
+   `forge verify-contract ...` affichées (Sourcify, sans clé API).
+3. **Go / no-go** : `pnpm load -- --players 3 --seconds 6` (≈ 0,35 MON). À lire dans le bilan : 0 tx abandonnée,
+   0 revert, taps envoyés = taps on-chain. Résultat du 2026-09-19 : 60/60 tx, vu en 313 ms, finalisé en 850 ms (p50).
+   `pnpm drip` affiche les soldes ; `pnpm drip -- fund 2` recharge le distributeur ; `pnpm drip -- withdraw` rapatrie tout.
+   On peut aussi envoyer des MON du faucet directement à l'adresse du distributeur : le serveur relit son solde toutes les 5 s.
+4. **`pnpm prod`** : lance le serveur, ouvre un tunnel HTTPS `cloudflared` vers lui, inscrit l'URL du tunnel dans
+   Vercel (`VITE_SERVER_URL`) et redéploie le front (~20 s), puis affiche l'URL de l'écran géant avec son token.
+   Prérequis : `brew install cloudflared`. Le serveur tourne sur le laptop parce que la clé admin (les MON) ne doit
+   pas quitter la machine et que Vercel ne sait pas garder de WebSocket ouvert. L'URL d'un tunnel rapide change à
+   chaque lancement : relancer `pnpm prod` redéploie le front tout seul. `pnpm prod -- --no-deploy` = sans Vercel.
 5. Front sur Vercel : projet `aura-farm-battle` → https://aura-farm-battle.vercel.app (chaque push sur `main` redéploie).
    Le projet est lié à la RACINE du dépôt (pas à `web/`) parce que `web/` importe `../shared/`, qui importe `viem`
    installé à la racine ; tout le réglage est dans `vercel.json` (build `pnpm -C web build`, sortie `web/dist`,
    réécriture de toutes les routes vers `index.html` pour que `/screen` et `/sprites` ne fassent pas 404).
-   Variables : `VITE_NETWORK=testnet` (déjà posée) et `VITE_SERVER_URL=https://...` une fois le serveur hébergé :
-   `printf 'https://mon-serveur' | vercel env add VITE_SERVER_URL production && vercel --prod`.
+   Variables : `VITE_NETWORK=testnet` (déjà posée) et `VITE_SERVER_URL` (posée par `pnpm prod` à chaque lancement ;
+   à la main : `printf 'https://mon-serveur' | vercel env add VITE_SERVER_URL production && vercel --prod`).
    Les `VITE_*` sont figées AU BUILD : changer une variable sans redéployer ne change rien.
    L'URL du serveur doit être en `https://` (donc `wss://`) : la page Vercel est en HTTPS et le navigateur
    bloque tout appel `http://` / `ws://` depuis une page HTTPS ("mixed content").
@@ -91,6 +103,14 @@ Le prix ne peut pas descendre sous 100 gwei : le seul vrai levier est le **nombr
 Le mode se choisit par round depuis la régie de l'écran géant. `join()` coûte 0,011 MON par joueur, une fois.
 
 ## Pièges Monad traités dans le code
+
+- **Reserve balance côté admin** (trouvé sur le testnet, invisible sur anvil) : un compte sous 10 MON ne peut envoyer de
+  la VALEUR qu'une fois tous les 3 blocs ; les autres transferts sont annulés à l'exécution, nonce consommé, sans erreur
+  RPC. Trente dotations d'affilée = une seule qui passe. D'où `AuraDrip.sol` : l'admin alimente le contrat une fois, puis
+  chaque dotation est un appel SANS valeur (l'admin ne paie que du gas) qui sert jusqu'à 40 joueurs en une tx.
+- Un `join()` envoyé trop tôt après la dotation peut être accepté par le RPC puis jamais inclus : le téléphone vérifie
+  l'inscription SUR LA CHAÎNE et réessaie (avec +1 gas pour changer le hash, sinon le RPC répond "déjà connue").
+- `cloudflared` utilise QUIC (UDP) par défaut, souvent bloqué : `pnpm prod` force `--protocol http2`.
 
 - Gas facturé sur la limite → limites en dur (`shared/config.mjs`), jamais d'`eth_estimateGas` en jeu.
 - Pas de mempool global → nonces gérés en local + chien de garde qui renvoie les tx perdues (`shared/pump.mjs`).

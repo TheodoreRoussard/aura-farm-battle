@@ -9,7 +9,7 @@
 //           --fund 0.25 (MON par joueur ; le reste est renvoyé à l'admin à la fin)
 import { encodeFunctionData, formatEther, parseEther } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
-import { ABI, BLOCK_MS, GAS } from '../shared/config.mjs'
+import { ABI, BLOCK_MS, DRIP_ABI, GAS, dripGas } from '../shared/config.mjs'
 import { openFeed } from '../shared/feed.mjs'
 import { TxPump } from '../shared/pump.mjs'
 import { arg, getAdmin, getClients, getNetwork, loadDeployment, sleep } from './lib.mjs'
@@ -21,7 +21,8 @@ const INTERVAL = Number(arg('interval', 300))
 const MAX_COUNT = Number(arg('max', 8))
 const admin = getAdmin(net)
 const { publicClient } = getClients(net, admin)
-const farm = loadDeployment(net).address
+const { address: farm, drip } = loadDeployment(net)
+if (!drip) throw new Error(`Pas de distributeur déployé : pnpm deploy:${net.name} -- --drip-only`)
 const call = (functionName, args = []) => encodeFunctionData({ abi: ABI, functionName, args })
 
 const expectedTx = Math.ceil((SECONDS * 1000) / INTERVAL)
@@ -29,12 +30,16 @@ const perTx = Number(GAS.tap) * 150e-9 // pire cas : le solde doit couvrir limit
 const defaultFund = (Number(GAS.join) * 150e-9 + expectedTx * perTx * 1.15 + 0.01).toFixed(3)
 const FUND = parseEther(String(arg('fund', defaultFund)))
 
-const adminBefore = await publicClient.getBalance({ address: admin.address })
+// Les MON des joueurs sortent du distributeur ; le rapatriement final, lui, revient sur le wallet admin.
+// Le coût du test se lit donc sur la somme admin + distributeur.
+const treasury = async () => (await publicClient.getBalance({ address: admin.address })) + (await publicClient.getBalance({ address: drip }))
+const adminBefore = await treasury()
+const dripBefore = await publicClient.getBalance({ address: drip })
 console.log(`Réseau ${net.chain.name} — contrat ${farm}`)
 console.log(`${N} joueurs × ${SECONDS} s, 1 tx / ${INTERVAL} ms → ~${N * expectedTx} tx attendues`)
-console.log(`Admin ${admin.address} : ${formatEther(adminBefore)} MON — dotation ${formatEther(FUND)} MON/joueur\n`)
-if (adminBefore < FUND * BigInt(N) + parseEther('0.05')) {
-  console.error('Solde admin insuffisant pour ce test. Réduis --players / --seconds.')
+console.log(`Admin + distributeur : ${formatEther(adminBefore)} MON (dont distributeur ${formatEther(dripBefore)}) — dotation ${formatEther(FUND)} MON/joueur\n`)
+if (dripBefore < FUND * BigInt(N)) {
+  console.error('Solde du distributeur insuffisant pour ce test. Réduis --players / --seconds, ou : pnpm drip -- fund <MON>')
   process.exit(1)
 }
 
@@ -48,10 +53,17 @@ const players = await Promise.all(
 )
 const byAddress = new Map(players.map((p) => [p.account.address.toLowerCase(), p]))
 
-// ── 1. Dotation : l'admin enchaîne N transferts sans attendre les reçus ──────────────
+// ── 1. Dotation : UNE tx vers le distributeur sert tous les joueurs (comme le serveur) ──────────────
+// Pas N transferts depuis l'admin : sous 10 MON, Monad n'autorise qu'un transfert de valeur tous les 3 blocs.
 console.log('1/5 dotation des wallets...')
-for (const p of players) await adminPump.send({ to: p.account.address, value: FUND, gas: GAS.transfer })
+await adminPump.send({
+  to: drip,
+  data: encodeFunctionData({ abi: DRIP_ABI, functionName: 'drip', args: [players.map((p) => p.account.address), FUND] }),
+  gas: dripGas(N, 0),
+})
 if (!(await adminPump.drain())) throw new Error('dotation non confirmée')
+const unfunded = (await Promise.all(players.map((p) => p.pump.balance()))).filter((b) => b < FUND).length
+if (unfunded) throw new Error(`${unfunded} joueur(s) sur ${N} non alimenté(s) : la tx de dotation a été annulée (gas ? distributeur vide ?)`)
 // Règle Monad : un compte fraîchement alimenté doit attendre k = 3 blocs avant de dépenser
 // (le consensus valide les soldes sur un état en retard de 3 blocs).
 await sleep(BLOCK_MS * 5)
@@ -165,7 +177,7 @@ await Promise.all(
 )
 adminPump.stop()
 await sleep(1000)
-const adminAfter = await publicClient.getBalance({ address: admin.address })
+const adminAfter = await treasury()
 const spent = Number(formatEther(adminBefore - adminAfter))
 console.log(`Coût total du test : ${spent.toFixed(4)} MON → ${(spent / Math.max(1, latFirst.length)).toFixed(5)} MON par tx réussie`)
 console.log(`Au tarif du testnet (limite ${GAS.tap} gas × 100 gwei) ces ${signed} tx coûteraient ${(signed * Number(GAS.tap) * 100e-9).toFixed(2)} MON`)

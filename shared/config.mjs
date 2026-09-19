@@ -41,7 +41,14 @@ export const GAS = {
   tap: 46_600n, // mesuré 45 164 — identique pour tap(1) et tap(20), 1er tap du round inclus
   buy: 47_200n, // mesuré 45 749 max
   transfer: 21_000n,
+  // AuraDrip.drip() — mesuré : 65 940 pour 1 nouveau compte, +42 500 par nouveau, +17 500 par compte déjà
+  // existant (créer un compte coûte 25 000 gas). La limite se calcule par lot : voir dripGas().
+  dripBase: 26_000n,
+  dripNew: 43_500n,
+  dripTopUp: 18_500n,
+  startRound: 60_000n,
 }
+export const dripGas = (fresh, topUps) => GAS.dripBase + BigInt(fresh) * GAS.dripNew + BigInt(topUps) * GAS.dripTopUp
 
 // Prix : base fee plancher = 100 gwei sur Monad (impossible de descendre en dessous).
 // Le pourboire (priority fee) est le seul levier côté prix : 0 tant que les blocs sont vides.
@@ -53,6 +60,12 @@ export const FEES = {
 }
 
 export const BLOCK_MS = 300 // testnet mesuré : ~300 ms
+
+export const DRIP_ABI = parseAbi([
+  'function drip(address[] to, uint256 amount)',
+  'function withdraw()',
+  'function host() view returns (address)',
+])
 
 export const ABI = parseAbi([
   'struct Game { uint32 round; uint40 startBlock; uint40 endBlock; uint8 maxPerTx; }',
