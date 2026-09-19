@@ -225,11 +225,8 @@ export default function Play() {
         })}
       </section>
 
-      <footer className="mt-5 flex shrink-0 items-center justify-between gap-3 whitespace-nowrap text-xs short:mt-2">
-        <span className="flex gap-4">
-          <button className="font-semibold underline decoration-offwhite/40 underline-offset-4" onPointerDown={() => setDrawer(true)}>Hall of Shame</button>
-          <a className="underline decoration-offwhite/40 underline-offset-4 opacity-70" href={`/screen?room=${encodeURIComponent(me.room)}`} target="_blank" rel="noreferrer">Écran géant</a>
-        </span>
+      {/* Classement : pastille de rang en haut et bouton de fin de round. L'écran géant ne s'ouvre que sur l'ordinateur. */}
+      <footer className="mt-5 flex shrink-0 items-center justify-center whitespace-nowrap text-xs short:mt-2">
         <p className="min-w-0 truncate tabular-nums opacity-60" title={me.balance !== null ? `${formatEther(me.balance)} MON` : ''}>
           {live.connected ? (
             <>
@@ -449,8 +446,6 @@ function RoomForm({ onSubmit }) {
       <h1 className="font-display text-outline text-5xl leading-none">Aura Farm<br />Battle</h1>
       <p className="mt-3 text-sm opacity-70">Entre le code affiché sur l'écran géant</p>
       <input value={code} onChange={(e) => setCode(e.target.value)} autoCapitalize="characters" className="mt-8 w-44 rounded-2xl bg-offwhite/10 p-3 text-center text-2xl font-bold uppercase tracking-widest outline-none placeholder:opacity-30" placeholder="CODE" />
-      <button className="btn-chunky mt-4 bg-neon px-10 py-3 text-base font-bold text-ink" onPointerDown={() => code && onSubmit(code)}>Rejoindre</button>
-      <a className="mt-12 text-xs underline decoration-offwhite/40 underline-offset-4 opacity-70" href="/screen">Tu animes la partie ? Écran géant et régie</a>
-    </Center>
+      <button className="btn-chunky mt-4 bg-neon px-10 py-3 text-base font-bold text-ink" onPointerDown={() => code && onSubmit(code)}>Rejoindre</button>    </Center>
   )
 }
