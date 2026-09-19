@@ -101,7 +101,7 @@ Le prix ne peut pas descendre sous 100 gwei : le seul vrai levier est le **nombr
 |---|---|---|---|
 | Finale : 1 tap = 1 tx (~6 taps/s) | 6 | 5 400 | ~28 MON |
 | Bloc : 1 tx par bloc (300 ms) | 3,3 | 3 000 | ~15,5 MON |
-| Éco : 1 tx / 600 ms | 1,7 | 1 500 | ~8 MON |
+| Éco : 1 tx / s (mode par défaut) | 1 | 900 | ~4,7 MON |
 
 Le mode se choisit par round depuis la régie de l'écran géant. `join()` coûte 0,011 MON par joueur, une fois.
 

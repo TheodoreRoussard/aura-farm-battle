@@ -236,7 +236,7 @@ const Line = ({ label, value }) => (
 )
 
 const MODES = [
-  { label: 'Éco · 1 tx toutes les 600 ms', maxPerTx: 20, flushMs: 600 },
+  { label: 'Éco · 1 tx par seconde', maxPerTx: 20, flushMs: 1000 }, // mode par défaut : le budget MON tient plusieurs rounds
   { label: 'Bloc · 1 tx par bloc (300 ms)', maxPerTx: 20, flushMs: 300 },
   { label: 'Finale · 1 tap = 1 tx', maxPerTx: 1, flushMs: 300 },
 ]
