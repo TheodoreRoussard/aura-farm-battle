@@ -65,9 +65,9 @@ for (let i = 0; i < 50 && !(await rpcUp()); i++) await sleep(200)
 if (!(await rpcUp())) throw new Error("anvil n'a pas démarré (Foundry >= 1.8 installé ?)")
 
 console.log('2/4 compilation + déploiement du contrat...')
-if (!fs.existsSync(path.join(ROOT, 'contracts/out/AuraFarm.sol/AuraFarm.json'))) {
-  await once('forge', bin('forge'), ['build', '--offline'], { cwd: path.join(ROOT, 'contracts') })
-}
+// Toujours recompiler (incrémental, rapide) : un artefact périmé déploierait l'ancien contrat,
+// dont les events ne correspondent plus à l'ABI du front et du serveur.
+await once('forge', bin('forge'), ['build', '--offline'], { cwd: path.join(ROOT, 'contracts') })
 await once('deploy', process.execPath, ['scripts/deploy.mjs', '--local'])
 
 console.log('3/4 serveur (dotation, classement, régie)...')

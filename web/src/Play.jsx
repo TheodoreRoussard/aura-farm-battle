@@ -37,10 +37,9 @@ export default function Play() {
   const lv = levelsOf(mine, live.game.round)
   const boostOn = playerStore.boosted()
   const perTap = Math.round(tapValue(lv, boostOn))
-  const spent = lv.spent ?? 0
   const inFlight = playerStore.optimisticTaps()
   const total = projected(mine, live) + Math.round(playerStore.optimisticAura()) // optimiste : on n'attend pas la chaîne
-  const aura = total - spent
+  const confirmed = projected(mine, live) // aura vue on-chain : c'est elle que buy() compare au seuil
   const boostLeftMs = Math.max(me.boostEnd - Date.now(), ((lv.boostUntil ?? 0) - live.head) * BLOCK_MS)
   const boostTotalMs = boostBlocks(lv.magnet) * BLOCK_MS
   const stage = stageOf(total)
@@ -66,14 +65,17 @@ export default function Play() {
   // "X t'a volé la Ne place"
   const prevRank = useRef(0)
   useEffect(() => {
-    if (phase === 'live' && prevRank.current && rank > prevRank.current && board[rank - 2]) {
-      setToast(`${board[rank - 2].name} t'a volé la ${prevRank.current}${prevRank.current === 1 ? 're' : 'e'} place`)
-      const t = setTimeout(() => setToast(null), 2200)
-      prevRank.current = rank
-      return () => clearTimeout(t)
-    }
+    if (phase === 'live' && prevRank.current && rank > prevRank.current && board[rank - 2])
+      setToast({ id: Date.now(), text: `${board[rank - 2].name} t'a volé la ${prevRank.current}${prevRank.current === 1 ? 're' : 'e'} place` })
     prevRank.current = rank
+    if (phase !== 'live') setToast(null)
   }, [rank, phase])
+  // Minuteur propre à chaque notification : un changement de rang ne l'annule plus (sinon elle restait affichée).
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 2000)
+    return () => clearTimeout(t)
+  }, [toast])
 
   // Bonus x5 : une bulle apparaît à un endroit aléatoire, le joueur la touche → claimBonus() on-chain.
   // Le contrat impose un repos entre deux bonus : pas de bulle pendant ce temps.
@@ -208,7 +210,7 @@ export default function Play() {
       <section className="-mx-6 mt-5 flex snap-x gap-3 overflow-x-auto px-6 pb-2 [scrollbar-width:none]">
         {UPGRADES.map((u) => {
           const level = lv[u.key]
-          return <Upgrade key={u.kind} icon={u.icon} label={u.label} detail={u.detail(level)} cost={Number(u.cost(level))} maxed={level >= u.max} aura={aura} disabled={!canTap || me.buying} onBuy={() => playerStore.buy(u.kind)} />
+          return <Upgrade key={u.kind} icon={u.icon} label={u.label} detail={u.detail(level)} cost={Number(u.cost(level))} maxed={level >= u.max} total={total} confirmed={confirmed} disabled={!canTap || me.buying} onBuy={() => playerStore.buy(u.kind)} />
         })}
       </section>
 
@@ -220,7 +222,7 @@ export default function Play() {
       </footer>
 
       {drawer && <Leaderboard board={board} me={me.address} onClose={() => setDrawer(false)} />}
-      {toast && <div className="absolute inset-x-6 top-20 z-10 rounded-2xl bg-offwhite px-4 py-3 text-center text-sm font-semibold text-ink">{toast}</div>}
+      {toast && <div key={toast.id} className="pop-soft pointer-events-none absolute inset-x-6 top-20 z-10 rounded-2xl bg-offwhite px-4 py-3 text-center text-sm font-semibold text-ink">{toast.text}</div>}
     </div>
   )
 }
@@ -246,9 +248,11 @@ function RoundStatus({ phase, live, rank }) {
 
 const Center = ({ children }) => <div className="bg-monad flex h-full flex-col items-center justify-center p-8 text-center">{children}</div>
 
-function Upgrade({ icon, label, detail, cost, maxed, aura, disabled, onBuy }) {
-  const ok = !disabled && !maxed && aura >= cost
-  const fill = Math.max(0, Math.min(1, aura / cost))
+// Les améliorations se DÉBLOQUENT quand l'aura totale atteint le seuil : rien n'est dépensé.
+// Le bouton attend l'aura confirmée on-chain (sinon le contrat refuserait et le niveau ne bougerait pas).
+function Upgrade({ icon, label, detail, cost, maxed, total, confirmed, disabled, onBuy }) {
+  const ok = !disabled && !maxed && confirmed >= cost
+  const fill = Math.max(0, Math.min(1, total / cost))
   return (
     <button disabled={!ok} onClick={() => ok && onBuy()} className={`btn-chunky relative w-40 shrink-0 snap-start overflow-hidden px-3 py-3 text-left ${ok ? 'btn-ready' : 'bg-offwhite/10 text-offwhite/75'}`}>
       {!ok && !maxed && <div className="absolute inset-y-0 left-0 bg-offwhite/10 transition-[width] duration-200" style={{ width: `${fill * 100}%` }} />}
@@ -257,7 +261,7 @@ function Upgrade({ icon, label, detail, cost, maxed, aura, disabled, onBuy }) {
         <p className="text-[13px] font-bold leading-tight">{label}</p>
       </div>
       <p className="relative mt-1.5 text-[11px] opacity-75">{detail}</p>
-      <p className="font-display relative mt-1 text-lg tabular-nums">{maxed ? 'MAX' : `${cost.toLocaleString('fr-FR')} aura`}</p>
+      <p className="font-display relative mt-1 text-lg tabular-nums">{maxed ? 'MAX' : ok ? 'Débloquer !' : `🔒 ${cost.toLocaleString('fr-FR')}`}</p>
     </button>
   )
 }

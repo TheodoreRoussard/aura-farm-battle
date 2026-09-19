@@ -21,7 +21,7 @@ contract AuraFarm {
     // tiennent dans ce même slot : tap() ne paie toujours qu'une lecture et une écriture.
     struct Player {
         uint48 total; // aura gagnée sur le round (ne baisse jamais → classement)
-        uint48 spent; // aura dépensée en améliorations (solde = total - spent)
+        uint48 spent; // toujours 0 : les améliorations se DÉBLOQUENT à un seuil d'aura, elles ne la consomment pas
         uint32 lastBlock; // dernier bloc où le revenu passif a été réglé
         uint32 boostUntil; // le bonus "x5" est actif tant que block.number < boostUntil
         uint16 round; // round auquel appartiennent ces valeurs (0 = jamais inscrit)
@@ -123,7 +123,8 @@ contract AuraFarm {
         _save(p);
     }
 
-    /// @notice Achète une amélioration avec de l'aura (jamais avec des MON).
+    /// @notice Débloque le niveau suivant d'une amélioration quand l'aura totale atteint son seuil.
+    ///         L'aura n'est pas dépensée : le score affiché reste l'aura gagnée sur tout le round.
     function buy(uint8 kind) external {
         Game memory g = game;
         if (block.number < g.startBlock || block.number >= g.endBlock) revert RoundNotLive();
@@ -149,8 +150,7 @@ contract AuraFarm {
         } else {
             revert BadKind();
         }
-        if (p.total - p.spent < cost) revert TooPoor();
-        p.spent += uint48(cost);
+        if (p.total < cost) revert TooPoor();
         _save(p);
     }
 
@@ -176,7 +176,7 @@ contract AuraFarm {
     }
 
     function multCost(uint24 level) public pure returns (uint64) {
-        return 10 * (uint64(level) + 1); // 10, 20, 30... : petits paliers qu'on enchaîne
+        return 10 * (uint64(level) + 1) * (uint64(level) + 1); // 10, 40, 90... : seuil qui monte à chaque niveau
     }
 
     function magnetCost(uint24 level) public pure returns (uint64) {

@@ -114,7 +114,7 @@ export const boostBlocks = (magnet) => BOOST_BLOCKS + BOOST_PER_MAGNET * magnet
 /** Catalogue des améliorations : `key` = champ du joueur (niveau), `kind` = argument de buy(). */
 export const UPGRADES = [
   { kind: KIND_POWER, key: 'power', icon: '☕', label: 'Cappuccino Assassino', base: 1, max: 1000, cost: powerCost, detail: (n) => `+1 aura par tap · niv. ${n}` },
-  { kind: KIND_MULT, key: 'mult', icon: '📈', label: 'Espresso Sigma', base: 0, max: 250, cost: (n) => 10n * (BigInt(n) + 1n), detail: (n) => `taps x1,01 · actuel x${(multBpsOf(n) / 10_000).toFixed(2).replace('.', ',')}` },
+  { kind: KIND_MULT, key: 'mult', icon: '📈', label: 'Espresso Sigma', base: 0, max: 250, cost: quad(10n), detail: (n) => `taps x1,01 · actuel x${(multBpsOf(n) / 10_000).toFixed(2).replace('.', ',')}` },
   { kind: KIND_RATE, key: 'rate', icon: '🌿', label: 'Brr Brr Patapim', base: 0, max: 1000, cost: rateCost, detail: (n) => `+1 aura par bloc · niv. ${n}` },
   { kind: KIND_MAGNET, key: 'magnet', icon: '🧲', label: 'Aimant à Bonus', base: 0, max: 10, cost: quad(200n), detail: (n) => `bonus +2 s · niv. ${n}` },
 ]

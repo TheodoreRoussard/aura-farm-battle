@@ -82,8 +82,9 @@ contract AuraFarmTest is Test {
         vm.startPrank(alice);
         farm.tap(20);
         farm.tap(20); // 40 aura
-        farm.buy(farm.KIND_RATE()); // coûte 30 → rate = 1 aura/bloc
-        assertEq(_player(alice).spent, 30);
+        farm.buy(farm.KIND_RATE()); // seuil 30 → rate = 1 aura/bloc
+        assertEq(_player(alice).total, 40); // l'aura n'est pas consommée
+        assertEq(_player(alice).spent, 0);
         assertEq(_player(alice).rate, 1);
 
         vm.roll(vm.getBlockNumber() + 50); // 50 blocs de revenu passif, pas encore réglé on-chain
@@ -164,13 +165,19 @@ contract AuraFarmTest is Test {
         _start(0, 1000, 20);
         _earn(alice, 100);
         vm.startPrank(alice);
-        farm.buy(farm.KIND_MULT()); // 10 → x1,01
-        farm.buy(farm.KIND_MULT()); // 20 → x1,0201
+        farm.buy(farm.KIND_MULT()); // seuil 10 → x1,01
+        farm.buy(farm.KIND_MULT()); // seuil 40 → x1,0201
         assertEq(_player(alice).multBps, 10_201);
         for (uint256 i = 0; i < 5; i++) farm.tap(20); // 100 taps x 1,0201 = 102,01
         AuraFarm.Player memory p = _player(alice);
         assertEq(p.total, 100 + 102);
-        assertEq(p.spent, 30);
+        assertEq(p.spent, 0);
+        farm.buy(farm.KIND_MULT()); // seuil 90 ≤ 202
+        farm.buy(farm.KIND_MULT()); // seuil 160 ≤ 202
+        uint8 kindMult = farm.KIND_MULT(); // lu avant : expectRevert vise l'appel suivant
+        vm.expectRevert(AuraFarm.TooPoor.selector);
+        farm.buy(kindMult); // seuil 250 > 202 : le prix monte à chaque niveau
+        assertEq(_player(alice).total, 202); // rien n'a été consommé
         vm.stopPrank();
     }
 
