@@ -3,7 +3,7 @@
 //   /screen?room=AURA&token=SECRET   → lien direct affiché par `pnpm prod` : régie déverrouillée d'emblée
 // Le code régie est rangé dans le localStorage puis RETIRÉ de la barre d'adresse : cet écran est projeté en public.
 import QRCode from 'qrcode'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { BLOCK_MS, GAS, stageOf } from '../../shared/config.mjs'
 import Brainrot from './Brainrot.jsx'
 import { SERVER_URL, blockState, createLive, ranking, roundPhase } from './game.js'
@@ -23,6 +23,66 @@ const store = (key, value) => {
     value === null ? localStorage.removeItem(key) : localStorage.setItem(key, value)
   } catch {}
 }
+// Musique de fond : UNIQUEMENT sur l'écran géant (la page joueur ne connaît pas ce fichier, sinon chaque
+// téléphone jouerait la musique). Web Audio plutôt que <audio loop> : la boucle repart sans blanc.
+// Les navigateurs n'autorisent le son qu'après un geste (clic, touche) : prime() doit être appelé PENDANT ce geste.
+const MUSIC_URL = encodeURI('/audio/Short Clicker Loop.mp3')
+const MUSIC_VOLUME = 0.7
+const music = (() => {
+  let ctx = null
+  let gain = null
+  let loading = null
+  let source = null
+  let muted = stored('aura.music') === 'off'
+  const listeners = new Set()
+  const notify = () => listeners.forEach((fn) => fn())
+  const ensure = () => {
+    if (!ctx) {
+      ctx = new AudioContext()
+      gain = ctx.createGain()
+      gain.gain.value = MUSIC_VOLUME
+      gain.connect(ctx.destination)
+      ctx.onstatechange = notify
+    }
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+  }
+  const load = () => (loading ??= fetch(MUSIC_URL).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b)))
+  const api = {
+    prime() {
+      ensure()
+      load().catch(() => {})
+    },
+    async play() {
+      if (muted || source) return
+      ensure()
+      const buffer = await load().catch(() => null)
+      if (!buffer || muted || source) return
+      source = ctx.createBufferSource()
+      source.buffer = buffer
+      source.loop = true
+      source.connect(gain)
+      source.start()
+      notify()
+    },
+    stop() {
+      source?.stop()
+      source = null
+      notify()
+    },
+    toggle() {
+      muted = !muted
+      store('aura.music', muted ? 'off' : null)
+      if (muted) api.stop()
+      else api.prime(), api.play()
+      notify()
+    },
+    /** 'on' | 'off' (coupée) | 'blocked' (le navigateur attend un clic) */
+    status: () => (muted ? 'off' : source && ctx?.state === 'running' ? 'on' : 'blocked'),
+    subscribe: (fn) => (listeners.add(fn), () => listeners.delete(fn)),
+  }
+  return api
+})()
+
 if (params.get('token')) {
   store('aura.token', params.get('token'))
   params.delete('token')
@@ -64,6 +124,20 @@ export default function Screen() {
     store('aura.token', null)
     setToken(null)
   }
+
+  // Musique dès que la régie est déverrouillée. Régie déjà ouverte au chargement (lien direct, code mémorisé) :
+  // aucun geste n'a eu lieu, le navigateur bloque le son → on démarre au premier clic ou à la première touche.
+  useEffect(() => {
+    if (!token) return music.stop()
+    music.play()
+    const onGesture = () => (music.prime(), music.play())
+    window.addEventListener('pointerdown', onGesture, { once: true })
+    window.addEventListener('keydown', onGesture, { once: true })
+    return () => {
+      window.removeEventListener('pointerdown', onGesture)
+      window.removeEventListener('keydown', onGesture)
+    }
+  }, [token])
 
   // Nombre de lignes du classement = ce qui tient dans la hauteur réellement disponible de la liste
   // (mesurée, pas devinée) : jamais de ligne coupée en deux, quelle que soit la taille de la fenêtre.
@@ -167,6 +241,7 @@ export default function Screen() {
         {/* Régie juste sous le QR code : toujours visible, même sur une fenêtre peu haute */}
         <div className="mt-5 shrink-0">
           {token ? <Controls phase={phase} token={token} onBadToken={lock} /> : <Unlock onUnlock={unlock} />}
+          {token && <MusicToggle />}
           {!live.connected && <p className="mt-3 text-center text-xs text-rosso">reconnexion au serveur…</p>}
         </div>
 
@@ -254,6 +329,7 @@ function Unlock({ onUnlock }) {
   const submit = async (e) => {
     e.preventDefault()
     if (!value.trim()) return
+    music.prime() // pendant le clic : autorise la musique qui démarrera une fois la régie déverrouillée
     try {
       const { res, json } = await postJson('/admin/check', { token: value.trim() })
       if (!res.ok) return setMsg(json.error ?? `Erreur ${res.status}`)
@@ -269,6 +345,16 @@ function Unlock({ onUnlock }) {
       <button className="w-full rounded-full bg-offwhite py-3 text-sm font-semibold text-ink">Déverrouiller la régie</button>
       {msg && <p className="text-xs text-rosso">{msg}</p>}
     </form>
+  )
+}
+
+function MusicToggle() {
+  const status = useSyncExternalStore(music.subscribe, music.status)
+  const label = { on: '🔊 Musique', off: '🔇 Musique coupée', blocked: '🔈 Cliquer pour lancer la musique' }[status]
+  return (
+    <button onClick={() => (status === 'blocked' ? (music.prime(), music.play()) : music.toggle())} className="mt-2 w-full rounded-full bg-offwhite/10 py-2 text-xs font-semibold">
+      {label}
+    </button>
   )
 }
 
