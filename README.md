@@ -44,7 +44,7 @@ Pour repartir de zéro :
 
 1. `cast wallet new` → mets la clé dans `.env` (`ADMIN_PRIVATE_KEY`), envoie-lui tes MON du faucet.
 2. `pnpm deploy:testnet` : déploie AuraFarm puis AuraDrip, et verse dans le distributeur `DRIP_BUDGET_MON` (plafonné au
-   solde moins 0,6 MON gardés pour le gas). `-- --drip-only` ne redéploie que le distributeur. Puis lance les commandes
+   solde moins 0,6 MON gardés pour le gas). `-- --drip-only` ne redéploie que le distributeur ; `-- --farm-only` ne redéploie que le jeu (nouvelle version du contrat) et garde le distributeur et ses MON. Puis lance les commandes
    `forge verify-contract ...` affichées (Sourcify, sans clé API).
 3. **Go / no-go** : `pnpm load -- --players 3 --seconds 6` (≈ 0,35 MON). À lire dans le bilan : 0 tx abandonnée,
    0 revert, taps envoyés = taps on-chain. Résultat du 2026-09-19 : 60/60 tx, vu en 313 ms, finalisé en 850 ms (p50).
@@ -93,15 +93,15 @@ elle remplace le dessin automatiquement. Vérifie que tu as le droit d'utiliser 
 
 ## Budget MON
 
-Mesuré (`node scripts/gas.mjs --local`) : un `tap()` = **45 164 gas**, identique pour 1 ou 20 taps agrégés.
-Sur Monad on paie la **gas limit** (46 600) × le prix (plancher 100 gwei) = **0,00466 MON par transaction**.
+Mesuré (`node scripts/gas.mjs --local`) : un `tap()` = **50 182 gas**, identique pour 1 ou 20 taps agrégés.
+Sur Monad on paie la **gas limit** (51 800) × le prix (plancher 100 gwei) = **0,00518 MON par transaction**.
 Le prix ne peut pas descendre sous 100 gwei : le seul vrai levier est le **nombre de transactions**.
 
 | Mode (30 joueurs, round de 30 s) | tx / joueur / s | tx par round | coût |
 |---|---|---|---|
-| Finale : 1 tap = 1 tx (~6 taps/s) | 6 | 5 400 | ~25 MON |
-| Bloc : 1 tx par bloc (300 ms) | 3,3 | 3 000 | ~14 MON |
-| Éco : 1 tx / 600 ms | 1,7 | 1 500 | ~7 MON |
+| Finale : 1 tap = 1 tx (~6 taps/s) | 6 | 5 400 | ~28 MON |
+| Bloc : 1 tx par bloc (300 ms) | 3,3 | 3 000 | ~15,5 MON |
+| Éco : 1 tx / 600 ms | 1,7 | 1 500 | ~8 MON |
 
 Le mode se choisit par round depuis la régie de l'écran géant. `join()` coûte 0,011 MON par joueur, une fois.
 

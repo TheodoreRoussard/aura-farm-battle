@@ -48,7 +48,9 @@ export function openFeed({ wsUrl, address, monad, onEvent, onHead, onStatus }) {
       onStatus?.('closed')
       if (!closed) setTimeout(connect, Math.min(5000, 300 * 2 ** retry++))
     }
-    ws.onerror = () => ws.close()
+    // Ne pas appeler ws.close() ici : sous Node/undici, close() re-déclenche onerror
+    // et fait exploser la pile (Maximum call stack size exceeded).
+    ws.onerror = () => {}
   }
 
   const handleHead = (h) =>

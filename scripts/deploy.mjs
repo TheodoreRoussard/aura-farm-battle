@@ -1,6 +1,8 @@
 // Déploie AuraFarm (le jeu) et AuraDrip (le distributeur de MON) depuis les artefacts Foundry.
 //   pnpm deploy:local | pnpm deploy:testnet
 //   pnpm deploy:testnet -- --drip-only     garde le AuraFarm déjà déployé, (re)déploie seulement AuraDrip
+//   pnpm deploy:testnet -- --farm-only     (re)déploie seulement AuraFarm (nouvelle version du jeu) et garde le
+//                                          distributeur déjà déployé, avec les MON qu'il contient
 //   ... -- --drip-fund 3.5                 MON versés dans le distributeur (défaut : DRIP_BUDGET_MON, plafonné au solde)
 import { formatEther, parseEther } from 'viem'
 import { BLOCK_MS } from '../shared/config.mjs'
@@ -10,6 +12,8 @@ const net = getNetwork()
 const admin = getAdmin(net)
 const { publicClient, walletClient } = getClients(net, admin)
 const DRIP_ONLY = process.argv.includes('--drip-only')
+const FARM_ONLY = process.argv.includes('--farm-only')
+if (DRIP_ONLY && FARM_ONLY) throw new Error('--drip-only et --farm-only sont incompatibles')
 const GAS_KEPT = parseEther(net.name === 'local' ? '100' : '0.6') // l'admin garde de quoi payer le gas (rounds, dotations)
 
 const balance = await publicClient.getBalance({ address: admin.address })
@@ -28,9 +32,23 @@ async function deploy(name, value = 0n) {
 let deployment
 if (DRIP_ONLY) deployment = loadDeployment(net)
 else {
+  // --farm-only : on relit le distributeur AVANT d'écraser le fichier de déploiement.
+  const kept = FARM_ONLY ? loadDeployment(net) : null
+  if (FARM_ONLY && !kept.drip) throw new Error(`Aucun distributeur dans le déploiement ${net.chain.id} : déploie sans --farm-only`)
   const farm = await deploy('AuraFarm')
   deployment = { address: farm.address, deployBlock: farm.block, host: admin.address, txHash: farm.hash }
+  if (kept) deployment = { ...deployment, drip: kept.drip, dripTxHash: kept.dripTxHash }
   saveDeployment(net, deployment)
+}
+
+if (FARM_ONLY) {
+  console.log(`Distributeur conservé : ${deployment.drip} (${formatEther(await publicClient.getBalance({ address: deployment.drip }))} MON)`)
+  if (net.name === 'testnet') {
+    console.log('\nVérification du code source (sans clé API) :')
+    console.log(`  cd contracts && forge verify-contract ${deployment.address} src/AuraFarm.sol:AuraFarm --chain 10143 --verifier sourcify --verifier-url https://sourcify-api-monad.blockvision.org/`)
+    console.log(`  ${net.explorer}/address/${deployment.address}`)
+  }
+  process.exit(0)
 }
 
 // Le distributeur reçoit ses MON dès le constructeur. Sous 10 MON, l'admin ne peut envoyer de la valeur

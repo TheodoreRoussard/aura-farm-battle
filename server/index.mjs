@@ -5,11 +5,11 @@
 //   3. régie : lancer / arrêter un round depuis l'écran géant.
 // À héberger sur une machine qui reste allumée (laptop + cloudflared, Railway...) : pas en serverless.
 import http from 'node:http'
-import { encodeFunctionData, formatEther, isAddress, parseEther } from 'viem'
+import { encodeFunctionData, formatEther, isAddress, parseEther, verifyMessage } from 'viem'
 import { WebSocketServer } from 'ws'
 import { ABI, DRIP_ABI, GAS, dripGas } from '../shared/config.mjs'
 import { openFeed } from '../shared/feed.mjs'
-import { nameOf } from '../shared/names.mjs'
+import { cleanName, nameMessage, nameOf } from '../shared/names.mjs'
 import { TxPump } from '../shared/pump.mjs'
 import { getAdmin, getClients, getNetwork, loadDeployment } from '../scripts/lib.mjs'
 
@@ -49,17 +49,25 @@ let lastFinal = null // renvoyé aux clients qui (re)chargent la page après la 
 const players = new Map() // adresse (minuscules) → { a, name, total, spent, rate, power, round, b }
 const perBlock = new Map() // blockId → { n, txs, taps } pour le compteur de débit
 const drips = new Map() // adresse → nombre de dotations
+const names = new Map() // adresse → pseudo choisi (le téléphone le renvoie à chaque démarrage)
 
-const toPlayer = (a, p, b) => ({
-  a,
-  name: nameOf(a),
-  total: Number(p.total),
-  spent: Number(p.spent),
-  rate: Number(p.rate),
-  power: Number(p.power),
-  round: Number(p.round),
-  b: Number(b), // bloc du dernier règlement → le client projette total + rate × (bloc courant − b)
-})
+// `p` = struct Player (snapshot) ou arguments de l'event PlayerUpdated (niveaux packés dans `extra`).
+const toPlayer = (a, p, b) => {
+  const extra = Number(p.extra ?? 0)
+  return {
+    a,
+    name: names.get(a) ?? nameOf(a),
+    total: Number(p.total),
+    spent: Number(p.spent),
+    rate: Number(p.rate),
+    power: Number(p.power),
+    mult: p.extra === undefined ? Number(p.mult ?? 0) : extra & 0xff,
+    magnet: p.extra === undefined ? Number(p.magnet ?? 0) : (extra >> 8) & 0xff,
+    boostUntil: Number(p.boostUntil ?? 0),
+    round: Number(p.round),
+    b: Number(b), // bloc du dernier règlement → le client projette total + passif × (bloc courant − b)
+  }
+}
 
 async function loadSnapshot(blockTag = 'latest') {
   const out = []
@@ -80,6 +88,7 @@ console.log(`[boot] ${net.chain.name} — contrat ${farm} — round ${game.round
 // un compte Monad ne peut envoyer de la valeur qu'une fois tous les 3 blocs — l'admin ne paie donc que du gas.
 // File des dotations : { address, fresh, resolve, reject }. Vidée toutes les DRIP_BATCH_MS en UNE transaction.
 const dripQueue = []
+const dripPending = new Set() // wallets dont la demande de dotation est en cours de traitement
 // Le solde du distributeur est relu régulièrement : on peut le recharger en cours de partie (faucet → adresse du
 // contrat, ou `pnpm drip -- fund`) sans redémarrer le serveur.
 let dripBalance = await publicClient.getBalance({ address: dripContract })
@@ -224,14 +233,33 @@ async function handleHttp(req, res) {
       const count = drips.get(address) ?? 0
       if (count >= DRIP_MAX_PER_ADDRESS) return send(429, { error: 'Dotation épuisée pour ce wallet' })
       if (dripLeft() < DRIP) return send(503, { error: 'Réserve de MON épuisée' })
-      const balance = await publicClient.getBalance({ address })
-      if (balance > DRIP / 3n) return send(200, { ok: true, skipped: true, balance: formatEther(balance) })
-      if (dripQueue.some((b) => b.address === address)) return send(200, { ok: true, queued: true })
-      drips.set(address, count + 1)
-      dripSpent += DRIP
-      // Créer un compte coûte 25 000 gas de plus que recharger un compte existant : la limite de gas en dépend.
-      const hash = await new Promise((resolve, reject) => dripQueue.push({ address, fresh: balance === 0n, resolve, reject }))
-      return send(200, { ok: true, hash, amount: formatEther(DRIP) })
+      // Une seule demande à la fois par wallet, réservée AVANT tout await : sinon plusieurs requêtes
+      // simultanées du même téléphone passent toutes le contrôle du plafond (vu en local : 15 dotations au lieu de 4).
+      if (dripPending.has(address) || dripQueue.some((b) => b.address === address)) return send(200, { ok: true, queued: true })
+      dripPending.add(address)
+      try {
+        const balance = await publicClient.getBalance({ address })
+        if (balance > DRIP / 3n) return send(200, { ok: true, skipped: true, balance: formatEther(balance) })
+        drips.set(address, count + 1)
+        dripSpent += DRIP
+        // Créer un compte coûte 25 000 gas de plus que recharger un compte existant : la limite de gas en dépend.
+        const hash = await new Promise((resolve, reject) => dripQueue.push({ address, fresh: balance === 0n, resolve, reject }))
+        return send(200, { ok: true, hash, amount: formatEther(DRIP) })
+      } finally {
+        dripPending.delete(address)
+      }
+    }
+
+    if (url.pathname === '/name') {
+      const address = String(body.address ?? '').toLowerCase()
+      const name = cleanName(body.name)
+      if (!isAddress(address) || !name) return send(400, { error: 'Pseudo invalide' })
+      const ok = await verifyMessage({ address, message: nameMessage(name), signature: body.signature }).catch(() => false)
+      if (!ok) return send(403, { error: 'Signature invalide' })
+      names.set(address, name)
+      const p = players.get(address)
+      if (p) queue({ t: 'p', p: Object.assign(p, { name }) })
+      return send(200, { ok: true, name })
     }
 
     if (url.pathname === '/admin/check') {

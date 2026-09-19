@@ -65,9 +65,9 @@ for (let i = 0; i < 50 && !(await rpcUp()); i++) await sleep(200)
 if (!(await rpcUp())) throw new Error("anvil n'a pas démarré (Foundry >= 1.8 installé ?)")
 
 console.log('2/4 compilation + déploiement du contrat...')
-if (!fs.existsSync(path.join(ROOT, 'contracts/out/AuraFarm.sol/AuraFarm.json'))) {
-  await once('forge', bin('forge'), ['build', '--offline'], { cwd: path.join(ROOT, 'contracts') })
-}
+// Toujours recompiler (incrémental, rapide) : un artefact périmé déploierait l'ancien contrat,
+// dont les events ne correspondent plus à l'ABI du front et du serveur.
+await once('forge', bin('forge'), ['build', '--offline'], { cwd: path.join(ROOT, 'contracts') })
 await once('deploy', process.execPath, ['scripts/deploy.mjs', '--local'])
 
 console.log('3/4 serveur (dotation, classement, régie)...')
@@ -75,10 +75,16 @@ run('server', process.execPath, ['server/index.mjs'], { env: { NETWORK: 'local',
 
 console.log('4/4 front...')
 // Les variables VITE_* du processus passent devant les fichiers .env : la démo force le réseau local.
-run('web', 'pnpm', ['-C', 'web', 'dev', '--port', '5173', '--strictPort'], { env: { VITE_NETWORK: 'local' }, quiet: true })
+// Vite lancé via node (pas `pnpm dev`) : fonctionne même si pnpm n'est pas dans le PATH (Windows).
+run('web', process.execPath, ['node_modules/vite/bin/vite.js', '--host', '--port', '5173', '--strictPort'], { cwd: path.join(ROOT, 'web'), env: { VITE_NETWORK: 'local' }, quiet: true })
 await sleep(2500)
 
-const lan = Object.values(os.networkInterfaces()).flat().find((i) => i.family === 'IPv4' && !i.internal)?.address
+// IP à donner aux téléphones : on écarte les cartes virtuelles (Hyper-V, WSL, VMware, Docker...).
+const VIRTUAL = /vEthernet|VMware|VirtualBox|WSL|Hyper-V|Docker|Loopback|vbox|br-|docker|veth/i
+const lan = Object.entries(os.networkInterfaces())
+  .filter(([name]) => !VIRTUAL.test(name))
+  .flatMap(([, list]) => list)
+  .find((i) => i.family === 'IPv4' && !i.internal && !i.address.startsWith('169.254.'))?.address
 console.log(`
 ────────────────────────────────────────────────────────────────────
   Écran géant : http://localhost:5173/screen?room=${ROOM}&token=${TOKEN}

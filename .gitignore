@@ -6,4 +6,5 @@ contracts/out/
 contracts/cache/
 deployments/31337.json
 .DS_Store
+.venv/
 .vercel
