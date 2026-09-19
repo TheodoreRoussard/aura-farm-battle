@@ -47,6 +47,8 @@ export function createLive() {
     flushMs: 300,
     game: { round: 0, startBlock: 0, endBlock: 0, maxPerTx: 0 },
     head: 0,
+    voted: 0, // plus haut bloc voté (finalité spéculative, +1 bloc)
+    finalized: 0, // plus haut bloc finalisé (irréversible, +2 blocs)
     players: new Map(),
     blocks: [], // { n, txs, taps } des ~60 derniers blocs actifs
     roundStats: { round: 0, txs: 0, taps: 0, peakTxs: 0 },
@@ -58,6 +60,7 @@ export function createLive() {
 
   const apply = (it) => {
     if (it.t === 'head') s.head = it.n
+    else if (it.t === 'st') s[it.s] = Math.max(s[it.s], it.n)
     else if (it.t === 'game') {
       if (it.game.round !== s.game.round) s.final = null
       s.game = it.game
@@ -82,7 +85,7 @@ export function createLive() {
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data)
       if (m.t === 'hello') {
-        Object.assign(s, { connected: true, farm: m.farm, game: m.game, head: m.head.number, flushMs: m.flushMs ?? 300, final: m.final ?? null })
+        Object.assign(s, { connected: true, farm: m.farm, game: m.game, head: m.head.number, flushMs: m.flushMs ?? 300, final: m.final ?? null, voted: m.commit?.voted ?? 0, finalized: m.commit?.finalized ?? 0 })
         s.players = new Map(m.players.map((p) => [p.a, p]))
       } else m.items.forEach(apply)
       store.notify()
@@ -124,6 +127,9 @@ export function ranking(live) {
     .sort((a, b) => b.score - a.score)
 }
 
+/** État d'un bloc vu du client : 'finalized' | 'voted' | 'proposed' | 'future'. */
+export const blockState = (live, n) => (n > live.head ? 'future' : n <= live.finalized ? 'finalized' : n <= live.voted ? 'voted' : 'proposed')
+
 export const roundPhase = (live) => {
   const { game, head } = live
   if (!game.round || !head) return 'idle'
@@ -153,6 +159,8 @@ export function createPlayer(liveStore) {
     pendingTaps: 0, // taps pas encore envoyés
     unconfirmed: new Map(), // hash → { count, at } : taps envoyés, pas encore vus on-chain
     lastLatency: null,
+    myBlocks: new Map(), // n° de bloc → { count: mes taps inclus dans ce bloc, at: quand je l'ai appris } (frise de blocs)
+    myTxs: [], // mes dernières tx : { hash, count, sentAt, block, seenMs, finalMs }
     txSent: 0,
     txSeen: 0,
     buying: false,
@@ -227,10 +235,21 @@ export function createPlayer(liveStore) {
 
   // Confirmations : le serveur rediffuse chaque PlayerUpdated avec le hash de la transaction.
   liveStore.onItem((it) => {
+    if (it.t === 'st' && it.s === 'finalized') {
+      // Mes tx dont le bloc vient d'être finalisé : on note le délai total envoi → irréversible.
+      for (const tx of s.myTxs) if (tx.finalMs === null && tx.block <= it.n) tx.finalMs = Date.now() - tx.sentAt
+      return
+    }
     if (it.t !== 'p' || it.p.a !== address || !it.tx) return
     const ms = pump.seen(it.tx)
     if (ms !== null) s.lastLatency = ms
-    if (s.unconfirmed.delete(it.tx)) s.txSeen++
+    const mine = s.unconfirmed.get(it.tx)
+    if (!mine) return
+    s.unconfirmed.delete(it.tx)
+    s.txSeen++
+    s.myBlocks.set(it.p.b, { count: (s.myBlocks.get(it.p.b)?.count ?? 0) + mine.count, at: Date.now() })
+    if (s.myBlocks.size > 80) s.myBlocks.delete(s.myBlocks.keys().next().value)
+    s.myTxs = [...s.myTxs.slice(-19), { hash: it.tx, count: mine.count, sentAt: mine.at, block: it.p.b, seenMs: ms, finalMs: null }]
   })
 
   const canSend = () => s.phase === 'ready' && live.head >= live.game.startBlock && live.head < live.game.endBlock - SEND_MARGIN_BLOCKS

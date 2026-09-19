@@ -32,6 +32,12 @@ const call = (functionName, args = []) => encodeFunctionData({ abi: ABI, functio
 let game = { round: 0, startBlock: 0, endBlock: 0, maxPerTx: 0 }
 let head = { number: 0, state: 'Proposed' }
 let finalSent = 0 // dernier round dont le résultat officiel a été diffusé
+const commit = { voted: 0, finalized: 0 } // plus haut bloc connu dans chaque état
+const setCommit = (state, n) => {
+  if (n <= commit[state]) return
+  commit[state] = n
+  queue({ t: 'st', s: state, n })
+}
 let lastFinal = null // renvoyé aux clients qui (re)chargent la page après la fin du round
 const players = new Map() // adresse (minuscules) → { a, name, total, spent, rate, power, round, b }
 const perBlock = new Map() // blockId → { n, txs, taps } pour le compteur de débit
@@ -79,7 +85,7 @@ setInterval(() => {
 }, 100)
 
 wss.on('connection', (socket) => {
-  socket.send(JSON.stringify({ t: 'hello', chainId: net.chain.id, farm, game, head, flushMs, final: lastFinal, players: [...players.values()] }))
+  socket.send(JSON.stringify({ t: 'hello', chainId: net.chain.id, farm, game, head, commit, flushMs, final: lastFinal, players: [...players.values()] }))
 })
 
 // ───────────────────────────────── Indexation temps réel ─────────────────────────────────
@@ -127,6 +133,16 @@ openFeed({
         }
       }
       queue({ t: 'head', n: h.number })
+    }
+    // États de bloc, pour que les clients colorent chaque bloc : proposé → voté → finalisé.
+    if (net.monadSubscriptions) {
+      if (h.state === 'Voted') setCommit('voted', h.number)
+      if (h.state === 'Finalized') setCommit('finalized', h.number)
+    } else {
+      // anvil n'a pas ces états : on imite le pipeline de MonadBFT (voté à +1 bloc, finalisé à +2)
+      // pour que la démo locale ressemble au testnet. Sur le testnet ce sont les vrais états.
+      setCommit('voted', h.number - 1)
+      setCommit('finalized', h.number - 2)
     }
     // Résultat OFFICIEL : relu dans l'état Finalized (irréversible), ~0,6 s après la fin du round.
     const finalized = h.state === 'Finalized' || h.state === 'Verified' || !net.monadSubscriptions

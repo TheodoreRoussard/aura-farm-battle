@@ -1,10 +1,16 @@
 @import 'tailwindcss';
 
+/* Palette officielle Monad. Le jaune "neon" sert uniquement d'accent (mes blocs, progression). */
 @theme {
-  --font-display: 'Impact', 'Haettenschweiler', 'Arial Narrow Bold', sans-serif;
-  --color-verde: #00e05a;
-  --color-rosso: #ff2d3f;
-  --color-neon: #f6ff00;
+  --font-display: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --color-monad: #836ef9; /* Monad Purple */
+  --color-monad-deep: #200052; /* Monad Blue (violet très sombre) */
+  --color-monad-berry: #a0055d; /* Monad Berry */
+  --color-offwhite: #fbfaf9; /* Monad Off-White */
+  --color-ink: #0e100f; /* Monad Black */
+  --color-verde: #3ee08f;
+  --color-rosso: #ff5d6c;
+  --color-neon: #f4f06a;
 }
 
 html,
@@ -14,9 +20,10 @@ body,
 }
 body {
   margin: 0;
-  background: #07060d;
-  color: white;
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  background: #200052;
+  color: #fbfaf9;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
   -webkit-user-select: none;
   user-select: none;
@@ -25,20 +32,36 @@ body {
   touch-action: manipulation; /* pas de zoom au double tap */
 }
 
-.bg-tricolore {
-  background:
-    radial-gradient(circle at 50% 35%, rgba(246, 255, 0, 0.18), transparent 55%),
-    linear-gradient(100deg, rgba(0, 224, 90, 0.35), rgba(255, 255, 255, 0.06) 50%, rgba(255, 45, 63, 0.35)), #07060d;
+/* Titres et chiffres : même police que le texte, en très gras et resserrée. */
+.font-display {
+  font-weight: 800;
+  letter-spacing: -0.03em;
 }
-.text-stroke {
-  -webkit-text-stroke: 2px black;
-  paint-order: stroke fill;
-  text-shadow: 3px 3px 0 #000;
+.label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+/* Fond Monad : un seul dégradé doux, du violet clair au violet profond. */
+.bg-monad {
+  background: radial-gradient(ellipse 120% 80% at 50% 30%, #8f7bff 0%, #6f57ee 38%, #3a1c99 75%, #200052 100%);
+}
+/* Variante sombre pour l'écran géant (les barres violettes doivent ressortir). */
+.bg-monad-dark {
+  background: radial-gradient(ellipse 100% 90% at 25% 0%, #4a2fc0 0%, #2a0a6b 50%, #160038 100%);
+}
+/* Surface translucide : remplace les cadres et les ombres. */
+.panel {
+  background: rgba(251, 250, 249, 0.08);
+  border-radius: 1.25rem;
 }
 
 @keyframes floatUp {
-  from { transform: translate(-50%, 0) scale(1) rotate(var(--rot)); opacity: 1; }
-  to { transform: translate(-50%, -140px) scale(1.6) rotate(var(--rot)); opacity: 0; }
+  from { transform: translate(-50%, 0) scale(1); opacity: 0.95; }
+  to { transform: translate(-50%, -120px) scale(1.25); opacity: 0; }
 }
 .particle { position: absolute; pointer-events: none; animation: floatUp 0.7s ease-out forwards; }
 
@@ -52,12 +75,27 @@ body {
 .shake { animation: shake 0.45s linear 2; }
 
 @keyframes pop {
-  0% { transform: translate(-50%, -50%) scale(0.2) rotate(-12deg); opacity: 0; }
-  20% { transform: translate(-50%, -50%) scale(1.25) rotate(-6deg); opacity: 1; }
-  80% { transform: translate(-50%, -50%) scale(1) rotate(-6deg); opacity: 1; }
-  100% { transform: translate(-50%, -50%) scale(1.4) rotate(-6deg); opacity: 0; }
+  0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
+  20% { transform: translate(-50%, -50%) scale(1.05); opacity: 1; }
+  80% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.1); opacity: 0; }
 }
 .pop { animation: pop 1.4s ease-out forwards; }
 
-@keyframes squish { 50% { transform: scale(0.9); } }
+@keyframes squish { 50% { transform: scale(0.93); } }
 .squish { animation: squish 0.09s ease-out; }
+
+/* Frise de blocs : tapis roulant. À chaque nouveau bloc la rangée est recréée décalée d'une case
+   vers la droite, puis glisse à sa place en ~1 bloc (0,3 s) → mouvement continu. */
+@keyframes conveyor {
+  from { transform: translateX(var(--slot)); }
+  to { transform: translateX(0); }
+}
+.conveyor { animation: conveyor 0.3s linear; }
+
+@keyframes blockIn {
+  0% { transform: scale(0.4); }
+  60% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+.block-in { animation: blockIn 0.35s ease-out; }

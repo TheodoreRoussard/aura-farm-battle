@@ -4,8 +4,8 @@
 import QRCode from 'qrcode'
 import { useEffect, useMemo, useState } from 'react'
 import { BLOCK_MS, GAS, stageOf } from '../../shared/config.mjs'
-import { SERVER_URL, createLive, ranking, roundPhase } from './game.js'
 import Brainrot from './Brainrot.jsx'
+import { SERVER_URL, blockState, createLive, ranking, roundPhase } from './game.js'
 import { useStore } from './hooks.js'
 
 const liveStore = createLive()
@@ -17,11 +17,22 @@ const BLOCK_GAS_LIMIT = 150_000_000 // capacité d'un bloc Monad
 const MON_PER_TX = Number(GAS.tap) * 100e-9 // gas limit × base fee plancher (100 gwei)
 const RIBBON = 60 // blocs affichés dans la frise (~18 s)
 const RIBBON_MIN_SCALE = 10 // hauteur max de la frise = au moins 10 tx par bloc
+const RIBBON_COLOR = { proposed: 'bg-offwhite', voted: 'bg-neon', finalized: 'bg-verde', future: 'bg-offwhite/10' }
+const ROW_PX = 64 // hauteur d'une ligne du classement, marge comprise
 
 export default function Screen() {
   const live = useStore(liveStore)
   const [qr, setQr] = useState(null)
-  useEffect(() => void QRCode.toDataURL(JOIN_URL, { margin: 1, width: 320 }).then(setQr), [])
+  useEffect(() => void QRCode.toDataURL(JOIN_URL, { margin: 0, width: 320 }).then(setQr), [])
+
+  // Nombre de lignes du classement selon la hauteur de la fenêtre : jamais de ligne coupée en deux.
+  const rowsFor = () => Math.max(3, Math.floor((window.innerHeight - 330) / ROW_PX))
+  const [rows, setRows] = useState(rowsFor)
+  useEffect(() => {
+    const onResize = () => setRows(rowsFor())
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   const phase = roundPhase(live)
   const board = useMemo(() => ranking(live), [live, liveStore.version])
@@ -42,85 +53,94 @@ export default function Screen() {
     return { n, txs: byNumber.get(n) ?? 0 }
   })
   // Échelle avec un plancher : en solo (1 tx par bloc) les barres restent petites au lieu de
-  // toutes monter à 100 % — c'est ce qui donnait un "mur" de barres jaunes.
+  // toutes monter à 100 %.
   const ribbonMax = Math.max(RIBBON_MIN_SCALE, ...slots.map((s) => s.txs))
 
   return (
-    <div className="bg-tricolore grid h-dvh grid-cols-[1fr_22rem] gap-6 overflow-hidden p-6">
+    <div className="bg-monad-dark grid h-dvh grid-cols-[1fr_19rem] gap-16 overflow-hidden px-14 py-12">
       <section className="flex min-h-0 flex-col">
-        <header className="flex items-end justify-between">
-          <h1 className="font-display text-stroke text-6xl text-neon">AURA FARM BATTLE</h1>
+        <header className="flex items-baseline justify-between">
+          <h1 className="font-display text-4xl">Aura Farm Battle</h1>
           <Status phase={phase} game={game} head={head} blocksLeft={blocksLeft} official={official} />
         </header>
 
-        <ol className="mt-4 flex-1 space-y-1.5 overflow-hidden">
-          {board.slice(0, 12).map((p, i) => (
-            <li key={p.a} className="relative flex items-center gap-3 overflow-hidden rounded-xl bg-black/50 px-3 py-1.5 text-xl">
-              <div className="absolute inset-y-0 left-0 bg-verde/40 transition-[width] duration-300" style={{ width: `${(p.score / maxScore) * 100}%` }} />
-              <span className="font-display relative w-8 text-right text-2xl">{i + 1}</span>
-              <Brainrot stage={stageOf(p.score)} outline={1} className="relative h-10 w-10 shrink-0" />
+        <ol className="mt-10 flex-1 space-y-2 overflow-hidden">
+          {board.slice(0, rows).map((p, i) => (
+            <li key={p.a} className="relative flex h-14 items-center gap-4 overflow-hidden rounded-2xl bg-offwhite/5 px-5 text-lg">
+              <div className="absolute inset-y-0 left-0 rounded-2xl bg-monad/55 transition-[width] duration-300" style={{ width: `${(p.score / maxScore) * 100}%` }} />
+              <span className="relative w-6 text-right tabular-nums opacity-60">{i + 1}</span>
+              <Brainrot stage={stageOf(p.score)} outline={1} className="relative h-9 w-9 shrink-0" />
               <span className="relative flex-1 truncate">{p.name}</span>
-              {p.speed > 25 && <span className="relative text-base">SUS 🤖</span>}
-              <span className="relative w-20 text-right text-sm opacity-70">{p.speed ?? 0} /s</span>
-              <span className="font-display relative w-28 text-right text-2xl tabular-nums">{p.score.toLocaleString('fr-FR')}</span>
+              {p.speed > 25 && <span className="relative rounded bg-rosso px-1.5 py-0.5 text-[11px] font-bold text-ink">SUS</span>}
+              <span className="relative w-20 text-right text-sm tabular-nums opacity-50">{p.speed ?? 0} / s</span>
+              <span className="font-display relative w-24 text-right text-2xl tabular-nums">{p.score.toLocaleString('fr-FR')}</span>
             </li>
           ))}
-          {!board.length && <p className="pt-24 text-center text-3xl opacity-70">Scanne le QR code pour rejoindre 👉</p>}
+          {!board.length && <p className="pt-32 text-center text-2xl opacity-50">Scanne le QR code pour rejoindre la partie</p>}
         </ol>
 
         {/* Ruban des blocs : une case = un bloc de 0,3 s, hauteur = transactions du jeu dans ce bloc */}
-        <div className="mt-3 shrink-0 rounded-xl bg-black/50 px-3 pb-2 pt-1.5">
-          <p className="flex justify-between text-[11px] uppercase tracking-wider opacity-60">
-            <span>les {RIBBON} derniers blocs (0,3 s chacun) — hauteur = transactions du jeu</span>
-            <span>échelle : {ribbonMax} tx</span>
-          </p>
-          <div className="mt-1 flex h-14 items-end gap-px">
+        <div className="mt-8 shrink-0">
+          <div className="flex h-12 items-end gap-0.5">
             {slots.map((s) => (
-              <div key={s.n} title={`bloc ${s.n} : ${s.txs} tx`} className={`flex-1 rounded-sm ${s.txs ? 'bg-neon' : 'bg-white/10'}`} style={{ height: s.txs ? `${Math.max(8, (s.txs / ribbonMax) * 100)}%` : '3px' }} />
+              <div key={s.n} title={`bloc ${s.n} : ${s.txs} tx`} className={`flex-1 rounded-sm transition-colors duration-150 ${s.txs ? RIBBON_COLOR[blockState(live, s.n)] : 'bg-offwhite/10'}`} style={{ height: s.txs ? `${Math.max(8, (s.txs / ribbonMax) * 100)}%` : '2px' }} />
             ))}
           </div>
+          <p className="label mt-3 flex justify-between">
+            <span>{RIBBON} derniers blocs de 0,3 s · blanc proposé · jaune voté · vert finalisé</span>
+            <span>bloc {head.toLocaleString('fr-FR')}</span>
+          </p>
         </div>
       </section>
 
-      <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto">
-        <div className="shrink-0 rounded-2xl bg-white p-3 text-center text-black">
-          {qr && <img src={qr} alt="QR code pour rejoindre" className="mx-auto aspect-square max-h-[30vh] w-auto" />}
-          <p className="font-display text-2xl">CODE : {ROOM || '—'}</p>
-          <p className="truncate text-xs opacity-60">{JOIN_URL}</p>
+      <aside className="flex min-h-0 flex-col overflow-y-auto">
+        <div className="shrink-0 rounded-3xl bg-offwhite p-5 text-center text-ink">
+          {qr && <img src={qr} alt="QR code pour rejoindre" className="mx-auto aspect-square max-h-[26vh] w-auto" />}
+          <p className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] opacity-50">code</p>
+          <p className="font-display text-3xl tracking-widest">{ROOM || '—'}</p>
         </div>
-        <Stat big label="transactions / seconde" value={tps.toFixed(0)} />
-        <div className="grid grid-cols-2 gap-3">
-          <Stat label="pic (tx/s)" value={(stats.peakTxs / (BLOCK_MS / 1000)).toFixed(0)} />
-          <Stat label="tx ce round" value={stats.txs.toLocaleString('fr-FR')} />
-          <Stat label="coût total" value={`${(stats.txs * MON_PER_TX).toFixed(2)} MON`} />
-          <Stat label="d'un bloc Monad utilisé" value={`${(((stats.peakTxs * Number(GAS.tap)) / BLOCK_GAS_LIMIT) * 100).toFixed(2)} %`} />
+
+        <div className="mt-10">
+          <p className="font-display text-8xl leading-none tabular-nums">{tps.toFixed(0)}</p>
+          <p className="label mt-2">transactions par seconde</p>
         </div>
-        <p className="text-center text-xs opacity-70">bloc {head.toLocaleString('fr-FR')} · {board.length} joueurs · {live.connected ? 'flux live' : 'reconnexion…'}</p>
-        {TOKEN && <Controls phase={phase} />}
+
+        <dl className="mt-8 divide-y divide-offwhite/10 text-sm">
+          <Line label="Pic" value={`${(stats.peakTxs / (BLOCK_MS / 1000)).toFixed(0)} tx/s`} />
+          <Line label="Transactions du round" value={stats.txs.toLocaleString('fr-FR')} />
+          <Line label="Coût total" value={`${(stats.txs * MON_PER_TX).toFixed(2)} MON`} />
+          <Line label="Part d'un bloc Monad utilisée" value={`${(((stats.peakTxs * Number(GAS.tap)) / BLOCK_GAS_LIMIT) * 100).toFixed(2)} %`} />
+          <Line label="Joueurs" value={board.length} />
+        </dl>
+
+        <div className="mt-auto pt-8">
+          {TOKEN && <Controls phase={phase} />}
+          {!live.connected && <p className="mt-3 text-center text-xs text-rosso">reconnexion au serveur…</p>}
+        </div>
       </aside>
     </div>
   )
 }
 
 function Status({ phase, game, head, blocksLeft, official }) {
-  const cls = 'font-display text-stroke text-right text-4xl'
-  if (phase === 'countdown') return <p className={`${cls} text-neon`}>DÉPART DANS {Math.ceil(((game.startBlock - head) * BLOCK_MS) / 1000)}</p>
-  if (phase === 'live') return <p className={`${cls} text-verde`}>FIN DANS {blocksLeft} BLOCS</p>
-  if (phase === 'over') return <p className={`${cls} ${official ? 'text-verde' : 'text-rosso'}`}>{official ? `ROUND ${game.round} FINALISÉ ✅` : 'FINALISATION…'}</p>
-  return <p className={`${cls} opacity-70`}>EN ATTENTE</p>
+  const cls = 'text-right text-xl font-semibold tabular-nums'
+  if (phase === 'countdown') return <p className={`${cls} text-neon`}>Départ dans {Math.ceil(((game.startBlock - head) * BLOCK_MS) / 1000)} s</p>
+  if (phase === 'live') return <p className={cls}>Round {game.round} · fin dans {blocksLeft} blocs</p>
+  if (phase === 'over') return <p className={`${cls} ${official ? 'text-verde' : 'opacity-70'}`}>{official ? `Round ${game.round} finalisé` : 'Finalisation en cours'}</p>
+  return <p className={`${cls} opacity-50`}>En attente</p>
 }
 
-const Stat = ({ label, value, big }) => (
-  <div className="rounded-2xl bg-black/60 p-3 text-center">
-    <p className={`font-display tabular-nums text-neon ${big ? 'text-7xl' : 'text-3xl'}`}>{value}</p>
-    <p className="text-xs uppercase tracking-wider opacity-70">{label}</p>
+const Line = ({ label, value }) => (
+  <div className="flex items-baseline justify-between py-2.5">
+    <dt className="opacity-60">{label}</dt>
+    <dd className="font-semibold tabular-nums">{value}</dd>
   </div>
 )
 
 const MODES = [
-  { label: 'Éco — 1 tx / 600 ms', maxPerTx: 20, flushMs: 600 },
-  { label: 'Bloc — 1 tx / bloc (300 ms)', maxPerTx: 20, flushMs: 300 },
-  { label: 'Finale — 1 tap = 1 tx', maxPerTx: 1, flushMs: 300 },
+  { label: 'Éco · 1 tx toutes les 600 ms', maxPerTx: 20, flushMs: 600 },
+  { label: 'Bloc · 1 tx par bloc (300 ms)', maxPerTx: 20, flushMs: 300 },
+  { label: 'Finale · 1 tap = 1 tx', maxPerTx: 1, flushMs: 300 },
 ]
 
 function Controls({ phase }) {
@@ -130,22 +150,27 @@ function Controls({ phase }) {
   const post = async (path, body) => {
     const res = await fetch(`${SERVER_URL}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: TOKEN, ...body }) })
     const json = await res.json().catch(() => ({}))
-    setMsg(res.ok ? `ok ${json.hash?.slice(0, 10)}…` : `erreur : ${json.error}`)
+    setMsg(res.ok ? '' : `Erreur : ${json.error}`)
   }
   const start = () => post('/admin/start', { delay: 17, duration: Math.round((seconds * 1000) / BLOCK_MS), maxPerTx: MODES[mode].maxPerTx, flushMs: MODES[mode].flushMs })
+  const running = phase === 'live' || phase === 'countdown'
+  const field = 'rounded-xl bg-offwhite/10 px-3 py-2 text-sm text-offwhite outline-none'
   return (
-    <div className="space-y-2 rounded-2xl bg-black/70 p-3 text-sm">
-      <select value={mode} onChange={(e) => setMode(Number(e.target.value))} className="w-full rounded bg-white p-1 text-black">
-        {MODES.map((m, i) => <option key={m.label} value={i}>{m.label}</option>)}
-      </select>
+    <div className="space-y-2">
       <div className="flex gap-2">
-        <select value={seconds} onChange={(e) => setSeconds(Number(e.target.value))} className="flex-1 rounded bg-white p-1 text-black">
-          {[15, 20, 30, 45, 60].map((s) => <option key={s} value={s}>{s} s</option>)}
+        <select value={mode} onChange={(e) => setMode(Number(e.target.value))} className={`${field} min-w-0 flex-1`}>
+          {MODES.map((m, i) => <option key={m.label} value={i} className="text-ink">{m.label}</option>)}
         </select>
-        <button disabled={phase === 'live' || phase === 'countdown'} onClick={start} className="flex-1 rounded bg-verde p-1 font-bold text-black disabled:opacity-40">START</button>
-        <button onClick={() => post('/admin/stop', {})} className="flex-1 rounded bg-rosso p-1 font-bold">STOP</button>
+        <select value={seconds} onChange={(e) => setSeconds(Number(e.target.value))} className={field}>
+          {[15, 20, 30, 45, 60].map((s) => <option key={s} value={s} className="text-ink">{s} s</option>)}
+        </select>
       </div>
-      <p className="h-4 text-xs opacity-70">{msg}</p>
+      {running ? (
+        <button onClick={() => post('/admin/stop', {})} className="w-full rounded-full bg-offwhite/10 py-3 text-sm font-semibold">Arrêter le round</button>
+      ) : (
+        <button onClick={start} className="w-full rounded-full bg-offwhite py-3 text-sm font-semibold text-ink">Lancer un round</button>
+      )}
+      {msg && <p className="text-xs text-rosso">{msg}</p>}
     </div>
   )
 }

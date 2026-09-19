@@ -49,6 +49,19 @@ cd web && pnpm dev                                          # terminal 3
    ou Root Directory = racine du dépôt, build `pnpm -C web build`, output `web/dist`.
    Un seul domaine stable pour le QR code : le wallet jetable vit dans le localStorage de CE domaine.
 
+## Voir les blocs
+
+- **Téléphone** (`web/src/BlockTrail.jsx`) : sous le personnage, une frise de 10 cases, une par bloc de 0,3 s,
+  qui défile en continu. Les cases contenant tes taps affichent `+N` et s'affirment quand le bloc avance dans
+  le consensus : contour pointillé jaune = proposé, jaune translucide = voté, jaune plein = finalisé.
+  La case en pointillés à droite compte les taps pas encore inclus. En dessous : « vu en X ms · finalisé en Y ms ».
+- **Écran géant** : les barres du ruban passent du blanc (proposé) au jaune (voté) puis au vert (finalisé).
+- Sur le testnet ces états viennent de `monadNewHeads`. Anvil ne les connaît pas : en local le serveur
+  les imite (voté à +1 bloc, finalisé à +2), ce qui correspond au pipeline de MonadBFT.
+
+L'interface est volontairement épurée (pas d'emojis, surfaces translucides, beaucoup d'espace) et utilise la palette Monad (`web/src/index.css`) : violet `#836EF9`, violet profond `#200052`,
+berry `#A0055D`, blanc cassé `#FBFAF9`, noir `#0E100F`.
+
 ## Personnages
 
 Un brainrot par palier d'évolution (`STAGES` dans `shared/config.mjs`) : Chimpanzini Bananini →
