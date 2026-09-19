@@ -23,6 +23,9 @@ Téléphones (web/)  ── tx signées en local ──▶  RPC Monad testnet  �
 
 ```sh
 pnpm install
+pnpm demo            # lance tout d'un coup (chaîne locale, contrat, serveur, front) — détail ci-dessous
+
+# ... ou étape par étape :
 cd contracts && forge build && cd ..                        # forge-std est versionné dans contracts/lib
 anvil --network monad --block-time 0.3 --host 0.0.0.0      # terminal 1 : Monad local, blocs de 0,3 s
 pnpm deploy:local                                           # terminal 2
@@ -45,6 +48,14 @@ cd web && pnpm dev                                          # terminal 3
    Root Directory = `web` avec l'option "Include source files outside of the Root Directory" activée,
    ou Root Directory = racine du dépôt, build `pnpm -C web build`, output `web/dist`.
    Un seul domaine stable pour le QR code : le wallet jetable vit dans le localStorage de CE domaine.
+
+## Personnages
+
+Un brainrot par palier d'évolution (`STAGES` dans `shared/config.mjs`) : Chimpanzini Bananini →
+Ballerina Cappuccina → Lirili Larilà → Tung Tung Tung Sahur → Bombardiro Crocodilo → Tralalero Tralala.
+Ils sont dessinés en SVG dans `web/src/Brainrot.jsx` ; la galerie est sur `/sprites`.
+Pour utiliser une vraie image : dépose `web/public/sprites/<slug>.png` (ex. `tralalero-tralala.png`),
+elle remplace le dessin automatiquement. Vérifie que tu as le droit d'utiliser l'image.
 
 ## Budget MON
 

@@ -32,6 +32,7 @@ const call = (functionName, args = []) => encodeFunctionData({ abi: ABI, functio
 let game = { round: 0, startBlock: 0, endBlock: 0, maxPerTx: 0 }
 let head = { number: 0, state: 'Proposed' }
 let finalSent = 0 // dernier round dont le résultat officiel a été diffusé
+let lastFinal = null // renvoyé aux clients qui (re)chargent la page après la fin du round
 const players = new Map() // adresse (minuscules) → { a, name, total, spent, rate, power, round, b }
 const perBlock = new Map() // blockId → { n, txs, taps } pour le compteur de débit
 const drips = new Map() // adresse → nombre de dotations
@@ -78,7 +79,7 @@ setInterval(() => {
 }, 100)
 
 wss.on('connection', (socket) => {
-  socket.send(JSON.stringify({ t: 'hello', chainId: net.chain.id, farm, game, head, flushMs, players: [...players.values()] }))
+  socket.send(JSON.stringify({ t: 'hello', chainId: net.chain.id, farm, game, head, flushMs, final: lastFinal, players: [...players.values()] }))
 })
 
 // ───────────────────────────────── Indexation temps réel ─────────────────────────────────
@@ -134,7 +135,8 @@ openFeed({
       try {
         const list = await loadSnapshot(net.monadSubscriptions ? 'finalized' : 'latest')
         for (const p of list) players.set(p.a, p)
-        queue({ t: 'final', round: game.round, endBlock: game.endBlock, players: list.filter((p) => p.round === game.round) })
+        lastFinal = { t: 'final', round: game.round, endBlock: game.endBlock, players: list.filter((p) => p.round === game.round) }
+        queue(lastFinal)
         console.log(`[round ${game.round}] résultat finalisé au bloc ${h.number}`)
       } catch (e) {
         finalSent = game.round - 1

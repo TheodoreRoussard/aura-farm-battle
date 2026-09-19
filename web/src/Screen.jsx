@@ -5,7 +5,8 @@ import QRCode from 'qrcode'
 import { useEffect, useMemo, useState } from 'react'
 import { BLOCK_MS, GAS, stageOf } from '../../shared/config.mjs'
 import { SERVER_URL, createLive, ranking, roundPhase } from './game.js'
-import { SPRITES, useStore } from './hooks.js'
+import Brainrot from './Brainrot.jsx'
+import { useStore } from './hooks.js'
 
 const liveStore = createLive()
 const params = new URLSearchParams(location.search)
@@ -14,6 +15,8 @@ const TOKEN = params.get('token')
 const JOIN_URL = `${location.origin}/?room=${encodeURIComponent(ROOM)}`
 const BLOCK_GAS_LIMIT = 150_000_000 // capacité d'un bloc Monad
 const MON_PER_TX = Number(GAS.tap) * 100e-9 // gas limit × base fee plancher (100 gwei)
+const RIBBON = 60 // blocs affichés dans la frise (~18 s)
+const RIBBON_MIN_SCALE = 10 // hauteur max de la frise = au moins 10 tx par bloc
 
 export default function Screen() {
   const live = useStore(liveStore)
@@ -31,8 +34,19 @@ export default function Screen() {
   const maxScore = board[0]?.score || 1
   const official = live.final?.round === game.round
 
+  // Ruban = vraie frise temporelle : RIBBON cases fixes, une par numéro de bloc (vide ou non).
+  // Le serveur ne publie que les blocs contenant des tx du jeu ; on replace chacun dans sa case.
+  const byNumber = new Map(blocks.map((b) => [b.n, b.txs]))
+  const slots = Array.from({ length: RIBBON }, (_, i) => {
+    const n = head - RIBBON + 1 + i
+    return { n, txs: byNumber.get(n) ?? 0 }
+  })
+  // Échelle avec un plancher : en solo (1 tx par bloc) les barres restent petites au lieu de
+  // toutes monter à 100 % — c'est ce qui donnait un "mur" de barres jaunes.
+  const ribbonMax = Math.max(RIBBON_MIN_SCALE, ...slots.map((s) => s.txs))
+
   return (
-    <div className="bg-tricolore grid h-full grid-cols-[1fr_22rem] gap-6 p-6">
+    <div className="bg-tricolore grid h-dvh grid-cols-[1fr_22rem] gap-6 overflow-hidden p-6">
       <section className="flex min-h-0 flex-col">
         <header className="flex items-end justify-between">
           <h1 className="font-display text-stroke text-6xl text-neon">AURA FARM BATTLE</h1>
@@ -44,7 +58,7 @@ export default function Screen() {
             <li key={p.a} className="relative flex items-center gap-3 overflow-hidden rounded-xl bg-black/50 px-3 py-1.5 text-xl">
               <div className="absolute inset-y-0 left-0 bg-verde/40 transition-[width] duration-300" style={{ width: `${(p.score / maxScore) * 100}%` }} />
               <span className="font-display relative w-8 text-right text-2xl">{i + 1}</span>
-              <span className="relative text-3xl">{SPRITES[stageOf(p.score)]}</span>
+              <Brainrot stage={stageOf(p.score)} outline={1} className="relative h-10 w-10 shrink-0" />
               <span className="relative flex-1 truncate">{p.name}</span>
               {p.speed > 25 && <span className="relative text-base">SUS 🤖</span>}
               <span className="relative w-20 text-right text-sm opacity-70">{p.speed ?? 0} /s</span>
@@ -54,17 +68,23 @@ export default function Screen() {
           {!board.length && <p className="pt-24 text-center text-3xl opacity-70">Scanne le QR code pour rejoindre 👉</p>}
         </ol>
 
-        {/* Ruban des blocs : une barre = un bloc de 0,3 s, hauteur = nombre de transactions du jeu */}
-        <div className="mt-3 flex h-20 items-end gap-0.5 rounded-xl bg-black/50 p-2">
-          {blocks.slice(-60).map((b) => (
-            <div key={b.n} title={`bloc ${b.n} : ${b.txs} tx`} className="flex-1 rounded-sm bg-neon" style={{ height: `${Math.max(4, (b.txs / Math.max(1, stats.peakTxs)) * 100)}%` }} />
-          ))}
+        {/* Ruban des blocs : une case = un bloc de 0,3 s, hauteur = transactions du jeu dans ce bloc */}
+        <div className="mt-3 shrink-0 rounded-xl bg-black/50 px-3 pb-2 pt-1.5">
+          <p className="flex justify-between text-[11px] uppercase tracking-wider opacity-60">
+            <span>les {RIBBON} derniers blocs (0,3 s chacun) — hauteur = transactions du jeu</span>
+            <span>échelle : {ribbonMax} tx</span>
+          </p>
+          <div className="mt-1 flex h-14 items-end gap-px">
+            {slots.map((s) => (
+              <div key={s.n} title={`bloc ${s.n} : ${s.txs} tx`} className={`flex-1 rounded-sm ${s.txs ? 'bg-neon' : 'bg-white/10'}`} style={{ height: s.txs ? `${Math.max(8, (s.txs / ribbonMax) * 100)}%` : '3px' }} />
+            ))}
+          </div>
         </div>
       </section>
 
-      <aside className="flex flex-col gap-3">
-        <div className="rounded-2xl bg-white p-3 text-center text-black">
-          {qr && <img src={qr} alt="QR code pour rejoindre" className="mx-auto w-full" />}
+      <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+        <div className="shrink-0 rounded-2xl bg-white p-3 text-center text-black">
+          {qr && <img src={qr} alt="QR code pour rejoindre" className="mx-auto aspect-square max-h-[30vh] w-auto" />}
           <p className="font-display text-2xl">CODE : {ROOM || '—'}</p>
           <p className="truncate text-xs opacity-60">{JOIN_URL}</p>
         </div>

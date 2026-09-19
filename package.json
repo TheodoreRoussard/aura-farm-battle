@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "demo": "node scripts/demo.mjs",
     "test:contracts": "cd contracts && forge test",
     "anvil": "anvil --network monad --block-time 1",
     "deploy:local": "node scripts/deploy.mjs --local",

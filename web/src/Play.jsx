@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatEther } from 'viem'
 import { BLOCK_MS, KIND_POWER, KIND_RATE, STAGES, powerCost, rateCost, stageOf } from '../../shared/config.mjs'
 import { createLive, createPlayer, projected, ranking, roundPhase } from './game.js'
-import { SHOUTS, SPRITES, blip, fanfare, useStore } from './hooks.js'
+import Brainrot from './Brainrot.jsx'
+import { SHOUTS, blip, fanfare, useStore } from './hooks.js'
 
 const liveStore = createLive()
 const playerStore = createPlayer(liveStore)
@@ -113,7 +114,7 @@ export default function Play() {
       <main className="relative flex flex-1 touch-none flex-col items-center justify-center" onPointerDown={onTap}>
         <p className="font-display text-stroke text-7xl text-neon tabular-nums">{total.toLocaleString('fr-FR')}</p>
         <p className="font-display text-sm tracking-widest opacity-80">AURA</p>
-        <div key={squish} className={`squish mt-4 text-[9rem] leading-none ${shout ? 'shake' : ''} ${canTap ? '' : 'opacity-40 grayscale'}`}>{SPRITES[stage]}</div>
+        <div key={squish} className={`squish mt-2 ${shout ? 'shake' : ''} ${canTap ? '' : 'opacity-40 grayscale'}`}><Brainrot stage={stage} outline={4} className="h-52 w-52" /></div>
         <p className="font-display mt-2 text-2xl text-stroke">{STAGES[stage].name}</p>
         {stage < STAGES.length - 1 && <p className="text-xs opacity-70">prochaine évolution : {Number(STAGES[stage + 1].min).toLocaleString('fr-FR')}</p>}
         {particles.map((p) => (
@@ -127,8 +128,8 @@ export default function Play() {
       </p>
 
       <section className="grid grid-cols-2 gap-2 p-3">
-        <Upgrade label="☕ Espresso doppio" detail={`+1 aura / tap (actuel ${power})`} cost={Number(powerCost(power))} aura={aura} disabled={!canTap || me.buying} onBuy={() => playerStore.buy(KIND_POWER)} />
-        <Upgrade label="🍕 Forno automatico" detail={`+1 aura / bloc (actuel ${rate})`} cost={Number(rateCost(rate))} aura={aura} disabled={!canTap || me.buying} onBuy={() => playerStore.buy(KIND_RATE)} />
+        <Upgrade label="☕ Cappuccino Assassino" detail={`+1 aura / tap (actuel ${power})`} cost={Number(powerCost(power))} aura={aura} disabled={!canTap || me.buying} onBuy={() => playerStore.buy(KIND_POWER)} />
+        <Upgrade label="🌳 Brr Brr Patapim" detail={`+1 aura / bloc (actuel ${rate})`} cost={Number(rateCost(rate))} aura={aura} disabled={!canTap || me.buying} onBuy={() => playerStore.buy(KIND_RATE)} />
       </section>
 
       <button className="font-display bg-black/60 py-3 text-lg tracking-wider" onPointerDown={() => setDrawer(true)}>🏆 HALL OF SHAME</button>
@@ -176,7 +177,7 @@ function Leaderboard({ board, me, onClose }) {
         {board.slice(0, 30).map((p, i) => (
           <li key={p.a} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 ${p.a === me ? 'bg-neon text-black' : 'bg-white/10'}`}>
             <span className="font-display w-7 text-right">{i + 1}</span>
-            <span className="text-xl">{SPRITES[stageOf(p.score)]}</span>
+            <Brainrot stage={stageOf(p.score)} outline={1} className="h-8 w-8 shrink-0" />
             <span className="flex-1 truncate">{p.name}</span>
             {p.speed > 25 && <span title="plus de 25 aura/s">SUS 🤖</span>}
             <span className="text-xs opacity-70">{p.speed ?? 0}/s</span>

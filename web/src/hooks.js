@@ -25,5 +25,4 @@ export function blip(freq = 440, dur = 0.06, type = 'square') {
 }
 export const fanfare = () => [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => blip(f, 0.18, 'sawtooth'), i * 90))
 
-export const SPRITES = ['👶', '🛵', '👵', '🍝'] // placeholders : un sprite par palier (voir STAGES)
-export const SHOUTS = ['MAMA MIA!', 'SIGMA RIZZ', 'SKIBIDI!', '+AURA', 'GYATT', 'BOMBARDIRO!', 'NO CAP']
+export const SHOUTS = ['MAMA MIA!', 'TRALALERO!', 'TUNG TUNG!', '+AURA', 'BRR BRR!', 'BOMBARDIRO!', 'LIRILÌ!']

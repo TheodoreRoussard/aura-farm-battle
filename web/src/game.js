@@ -82,7 +82,7 @@ export function createLive() {
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data)
       if (m.t === 'hello') {
-        Object.assign(s, { connected: true, farm: m.farm, game: m.game, head: m.head.number, flushMs: m.flushMs ?? 300 })
+        Object.assign(s, { connected: true, farm: m.farm, game: m.game, head: m.head.number, flushMs: m.flushMs ?? 300, final: m.final ?? null })
         s.players = new Map(m.players.map((p) => [p.a, p]))
       } else m.items.forEach(apply)
       store.notify()

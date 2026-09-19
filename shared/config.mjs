@@ -90,11 +90,16 @@ export const powerCost = (power) => 20n * BigInt(power) * BigInt(power)
 export const rateCost = (rate) => 30n * (BigInt(rate) + 1n) * (BigInt(rate) + 1n)
 
 // Paliers d'évolution : fonction pure du total → le front déclenche l'animation sans attendre la chaîne.
+// `slug` = nom du dessin dans web/src/Brainrot.jsx et du PNG optionnel web/public/sprites/<slug>.png.
+// Seuils calibrés pour un round de 30 s (~150 taps sans amélioration) : tout le monde voit 2-3
+// évolutions, seuls les acharnés (avec améliorations) atteignent Tralalero Tralala.
 export const STAGES = [
-  { min: 0n, name: 'Bambino Skibidi' },
-  { min: 100n, name: 'Tullio Vespa Rizzler' },
-  { min: 400n, name: 'Giga-Chad Nonna' },
-  { min: 1500n, name: 'Entité Cosmique Carbonara' },
+  { min: 0n, slug: 'chimpanzini-bananini', name: 'Chimpanzini Bananini' },
+  { min: 30n, slug: 'ballerina-cappuccina', name: 'Ballerina Cappuccina' },
+  { min: 100n, slug: 'lirili-larila', name: 'Lirili Larilà' },
+  { min: 250n, slug: 'tung-tung-tung-sahur', name: 'Tung Tung Tung Sahur' },
+  { min: 600n, slug: 'bombardiro-crocodilo', name: 'Bombardiro Crocodilo' },
+  { min: 1500n, slug: 'tralalero-tralala', name: 'Tralalero Tralala' },
 ]
 export const stageOf = (total) => {
   let s = 0
