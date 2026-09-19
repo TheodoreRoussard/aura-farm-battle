@@ -50,14 +50,48 @@ body {
   opacity: 0.6;
 }
 
-/* Fond Monad : un seul dégradé doux, du violet clair au violet profond. */
+/* Fond du téléphone : web/public/bg/background.webp (violet profond + vagues néon rose/bleu),
+   version allégée de background.jpg (3333×5000, 2 Mo) : 1200 px de large, ~26 Ko.
+   Dessous : dégradé de secours aux mêmes teintes (image absente ou AVIF non supporté).
+   Par-dessus : un halo violet doux derrière le personnage (le fond est déjà sombre, pas besoin de voile). */
 .bg-monad {
-  background: radial-gradient(ellipse 120% 80% at 50% 30%, #8f7bff 0%, #6f57ee 38%, #3a1c99 75%, #200052 100%);
+  position: relative;
+  isolation: isolate; /* les pseudo-éléments en z-index -1 restent DERRIÈRE le contenu, pas derrière la page */
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 60% 35% at 50% 50%, rgba(131, 110, 249, 0.22), transparent 75%),
+    url('/bg/background.webp') center / cover no-repeat,
+    linear-gradient(160deg, #2a0a6b 0%, #24085e 60%, #3a1c99 100%);
 }
-/* Variante sombre pour l'écran géant (les barres violettes doivent ressortir). */
+.bg-monad::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(ellipse 90% 80% at 50% 50%, transparent 60%, rgba(10, 0, 30, 0.35) 100%);
+}
+.bg-monad-dark::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.11) 1.3px, transparent 1.8px);
+  background-size: 24px 24px;
+}
+
+/* Variante sombre pour l'écran géant (les barres violettes doivent ressortir) : même univers, plus calme,
+   points fixes (grand écran : pas d'animation plein cadre). */
 .bg-monad-dark {
-  background: radial-gradient(ellipse 100% 90% at 25% 0%, #4a2fc0 0%, #2a0a6b 50%, #160038 100%);
+  position: relative;
+  isolation: isolate;
+  background:
+    repeating-conic-gradient(from -4deg at 30% -10%, rgba(255, 255, 255, 0.035) 0deg 8deg, transparent 8deg 20deg),
+    radial-gradient(circle at 0% 100%, rgba(160, 5, 93, 0.45), transparent 45%),
+    radial-gradient(ellipse 80% 70% at 30% 0%, rgba(110, 80, 240, 0.55), transparent 70%),
+    linear-gradient(170deg, #2e0f86 0%, #1f0660 55%, #120030 100%);
 }
+.bg-monad-dark::before { inset: 0; }
 /* Surface translucide : remplace les cadres et les ombres. */
 .panel {
   background: rgba(251, 250, 249, 0.08);
