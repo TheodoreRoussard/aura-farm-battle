@@ -184,3 +184,28 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .bob, .aura-halo, .aura-rays, .btn-ready, .stripes { animation: none; }
 }
+
+/* ───────── Bonus x5 ───────── */
+.boost-on .aura-halo { background: radial-gradient(circle, rgba(255, 140, 60, 0.7) 0%, rgba(255, 93, 108, 0.3) 45%, transparent 70%); animation-duration: 0.5s; }
+.boost-on .aura-rays { background: repeating-conic-gradient(from 0deg, rgba(255, 200, 80, 0.32) 0deg 8deg, transparent 8deg 24deg); animation-duration: 3s; }
+@keyframes softPop { 0% { transform: scale(0.5); opacity: 0; } 60% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); } }
+.pop-soft { animation: softPop 0.3s ease-out; }
+
+/* Bulle de bonus : rebondit, un anneau se vide pendant les 4 s où elle reste touchable */
+.orb {
+  width: 4.5rem; height: 4.5rem; margin: -2.25rem 0 0 -2.25rem; border-radius: 50%;
+  display: grid; place-items: center; touch-action: none;
+  background: radial-gradient(circle at 35% 30%, #fff9b8, #f4f06a 55%, #e8b923);
+  border: 3px solid #fff; box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.25), 0 0 32px 6px rgba(244, 240, 106, 0.75);
+  animation: orbIn 0.35s cubic-bezier(0.2, 1.6, 0.4, 1), orbFloat 0.9s ease-in-out 0.35s infinite;
+}
+@keyframes orbIn { from { transform: scale(0); } }
+@keyframes orbFloat { 50% { transform: translateY(-8px) scale(1.06); } }
+.orb-ring {
+  position: absolute; inset: -0.6rem; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(rgba(255, 255, 255, 0.9) var(--p, 100%), transparent 0);
+  -webkit-mask: radial-gradient(circle, transparent 62%, #000 64%); mask: radial-gradient(circle, transparent 62%, #000 64%);
+  animation: ringDrain 4s linear forwards;
+}
+@property --p { syntax: '<percentage>'; inherits: false; initial-value: 100%; }
+@keyframes ringDrain { to { --p: 0%; } }

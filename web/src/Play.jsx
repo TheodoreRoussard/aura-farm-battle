@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatEther } from 'viem'
-import { BLOCK_MS, KIND_POWER, KIND_RATE, STAGES, powerCost, rateCost, stageOf } from '../../shared/config.mjs'
+import { BLOCK_MS, BONUS_GAP, BOOST_MULT, STAGES, UPGRADES, boostBlocks, levelsOf, stageOf, tapValue } from '../../shared/config.mjs'
 import BlockTrail from './BlockTrail.jsx'
 import Brainrot from './Brainrot.jsx'
 import { createLive, createPlayer, projected, ranking, roundPhase } from './game.js'
@@ -32,12 +32,15 @@ export default function Play() {
 
   const mine = live.players.get(me.address)
   const phase = roundPhase(live)
-  const power = mine?.round === live.game.round ? mine.power : 1
-  const rate = mine?.round === live.game.round ? mine.rate : 0
-  const spent = mine?.round === live.game.round ? mine.spent : 0
+  const lv = levelsOf(mine, live.game.round)
+  const boostOn = playerStore.boosted()
+  const perTap = Math.round(tapValue(lv, boostOn))
+  const spent = lv.spent ?? 0
   const inFlight = playerStore.optimisticTaps()
-  const total = projected(mine, live) + inFlight * power // optimiste : on n'attend pas la chaîne
+  const total = projected(mine, live) + Math.round(playerStore.optimisticAura()) // optimiste : on n'attend pas la chaîne
   const aura = total - spent
+  const boostLeftMs = Math.max(me.boostEnd - Date.now(), ((lv.boostUntil ?? 0) - live.head) * BLOCK_MS)
+  const boostTotalMs = boostBlocks(lv.magnet) * BLOCK_MS
   const stage = stageOf(total)
   const board = useMemo(() => ranking(live), [live, liveStore.version])
   const rank = board.findIndex((p) => p.a === me.address) + 1
@@ -70,12 +73,45 @@ export default function Play() {
     prevRank.current = rank
   }, [rank, phase])
 
+  // Bonus x5 : une bulle apparaît à un endroit aléatoire, le joueur la touche → claimBonus() on-chain.
+  // Le contrat impose un repos entre deux bonus : pas de bulle pendant ce temps.
+  const [orb, setOrb] = useState(null)
+  const nextOk = useRef(0)
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (phase !== 'live' || me.phase !== 'ready') return setOrb(null)
+    let timer
+    const schedule = (min, max) => {
+      const wait = Math.max(min + Math.random() * (max - min), nextOk.current - Date.now())
+      timer = setTimeout(() => {
+        setOrb({ id: Date.now(), x: 12 + Math.random() * 76, y: 8 + Math.random() * 68 })
+        timer = setTimeout(() => (setOrb(null), schedule(5000, 9000)), 4000)
+      }, wait)
+    }
+    schedule(4000, 8000)
+    return () => clearTimeout(timer)
+  }, [phase, live.game.round, me.phase])
+  useEffect(() => {
+    if (!boostOn) return
+    const t = setInterval(() => tick((n) => n + 1), 150) // fait tomber la barre du bonus et l'éteint à la fin
+    return () => clearInterval(t)
+  }, [boostOn])
+  const claimOrb = (e) => {
+    e.stopPropagation() // la bulle n'est pas un tap
+    setOrb(null)
+    nextOk.current = Date.now() + (boostBlocks(lv.magnet) + BONUS_GAP) * BLOCK_MS
+    setShout(`BONUS x${BOOST_MULT} !`)
+    fanfare()
+    navigator.vibrate?.([30, 30, 60])
+    playerStore.claimBonus()
+  }
+
   const onTap = (e) => {
     if (!playerStore.tap()) return
     const box = e.currentTarget.getBoundingClientRect()
     const id = pid.current++
-    const text = Math.random() < 0.1 ? SHOUTS[id % SHOUTS.length] : `+${power}`
-    setParticles((ps) => [...ps.slice(-12), { id, x: e.clientX - box.left, y: e.clientY - box.top, text, dx: Math.round((Math.random() - 0.5) * 90), shout: text !== `+${power}` }])
+    const text = Math.random() < 0.1 ? SHOUTS[id % SHOUTS.length] : `+${perTap}`
+    setParticles((ps) => [...ps.slice(-12), { id, x: e.clientX - box.left, y: e.clientY - box.top, text, dx: Math.round((Math.random() - 0.5) * 90), shout: text !== `+${perTap}` }])
     setTimeout(() => setParticles((ps) => ps.filter((p) => p.id !== id)), 800)
     setSquish((n) => n + 1)
     blip(300 + Math.min(900, (total % 60) * 15))
@@ -117,7 +153,19 @@ export default function Play() {
       <RoundStatus phase={phase} live={live} rank={rank} />
 
       {/* Le personnage : toute la zone est tappable, en multi-touch (pointerdown, pas click) */}
-      <main className="relative flex min-h-0 flex-1 touch-none flex-col items-center justify-center" onPointerDown={onTap}>
+      <main className={`relative flex min-h-0 flex-1 touch-none flex-col items-center justify-center ${boostOn ? 'boost-on' : ''}`} onPointerDown={onTap}>
+        {boostOn && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-col items-center">
+            <p className="font-display text-outline pop-soft text-3xl text-neon">🔥 AURA x{BOOST_MULT}</p>
+            <div className="mt-1 h-2 w-40 overflow-hidden rounded-full bg-ink/40"><div className="h-full rounded-full bg-neon" style={{ width: `${Math.min(100, (boostLeftMs / boostTotalMs) * 100)}%` }} /></div>
+          </div>
+        )}
+        {orb && (
+          <button key={orb.id} onPointerDown={claimOrb} className="orb absolute z-20" style={{ left: `${orb.x}%`, top: `${orb.y}%` }} aria-label="Bonus aura">
+            <span className="orb-ring" />
+            <span className="text-3xl">⚡</span>
+          </button>
+        )}
         <p key={total} className="font-display text-outline bump text-8xl leading-none tabular-nums">{total.toLocaleString('fr-FR')}</p>
         <p className="label mt-1">aura</p>
         <div className="relative mt-5 flex h-56 w-56 items-center justify-center">
@@ -148,9 +196,11 @@ export default function Play() {
 
       <BlockTrail live={live} me={me} inFlight={inFlight} />
 
-      <section className="mt-6 grid grid-cols-2 gap-3">
-        <Upgrade icon="☕" label="Cappuccino Assassino" detail={`+1 aura par tap · niveau ${power}`} cost={Number(powerCost(power))} aura={aura} disabled={!canTap || me.buying} onBuy={() => playerStore.buy(KIND_POWER)} />
-        <Upgrade icon="🌿" label="Brr Brr Patapim" detail={`+1 aura par bloc · niveau ${rate}`} cost={Number(rateCost(rate))} aura={aura} disabled={!canTap || me.buying} onBuy={() => playerStore.buy(KIND_RATE)} />
+      <section className="-mx-6 mt-5 flex snap-x gap-3 overflow-x-auto px-6 pb-2 [scrollbar-width:none]">
+        {UPGRADES.map((u) => {
+          const level = lv[u.key]
+          return <Upgrade key={u.kind} icon={u.icon} label={u.label} detail={u.detail(level)} cost={Number(u.cost(level))} maxed={level >= u.max} aura={aura} disabled={!canTap || me.buying} onBuy={() => playerStore.buy(u.kind)} />
+        })}
       </section>
 
       <footer className="mt-5 flex items-center justify-between text-xs">
@@ -187,18 +237,18 @@ function RoundStatus({ phase, live, rank }) {
 
 const Center = ({ children }) => <div className="bg-monad flex h-full flex-col items-center justify-center p-8 text-center">{children}</div>
 
-function Upgrade({ icon, label, detail, cost, aura, disabled, onBuy }) {
-  const ok = !disabled && aura >= cost
+function Upgrade({ icon, label, detail, cost, maxed, aura, disabled, onBuy }) {
+  const ok = !disabled && !maxed && aura >= cost
   const fill = Math.max(0, Math.min(1, aura / cost))
   return (
-    <button disabled={!ok} onPointerDown={(e) => (e.stopPropagation(), ok && onBuy())} className={`btn-chunky relative overflow-hidden px-3 py-3 text-left ${ok ? 'btn-ready' : 'bg-ink/35 text-offwhite/70'}`}>
-      {!ok && <div className="absolute inset-y-0 left-0 bg-offwhite/10 transition-[width] duration-200" style={{ width: `${fill * 100}%` }} />}
+    <button disabled={!ok} onClick={() => ok && onBuy()} className={`btn-chunky relative w-40 shrink-0 snap-start overflow-hidden px-3 py-3 text-left ${ok ? 'btn-ready' : 'bg-ink/35 text-offwhite/70'}`}>
+      {!ok && !maxed && <div className="absolute inset-y-0 left-0 bg-offwhite/10 transition-[width] duration-200" style={{ width: `${fill * 100}%` }} />}
       <div className="relative flex items-center gap-2">
         <span className="text-2xl leading-none">{icon}</span>
         <p className="text-[13px] font-bold leading-tight">{label}</p>
       </div>
       <p className="relative mt-1.5 text-[11px] opacity-75">{detail}</p>
-      <p className="font-display relative mt-1 text-lg tabular-nums">{cost.toLocaleString('fr-FR')} aura</p>
+      <p className="font-display relative mt-1 text-lg tabular-nums">{maxed ? 'MAX' : `${cost.toLocaleString('fr-FR')} aura`}</p>
     </button>
   )
 }

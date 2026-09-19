@@ -43,16 +43,25 @@ const players = new Map() // adresse (minuscules) → { a, name, total, spent, r
 const perBlock = new Map() // blockId → { n, txs, taps } pour le compteur de débit
 const drips = new Map() // adresse → nombre de dotations
 
-const toPlayer = (a, p, b) => ({
-  a,
-  name: nameOf(a),
-  total: Number(p.total),
-  spent: Number(p.spent),
-  rate: Number(p.rate),
-  power: Number(p.power),
-  round: Number(p.round),
-  b: Number(b), // bloc du dernier règlement → le client projette total + rate × (bloc courant − b)
-})
+// `p` = struct Player (snapshot) ou arguments de l'event PlayerUpdated (niveaux packés dans `extra`).
+const toPlayer = (a, p, b) => {
+  const extra = Number(p.extra ?? 0)
+  return {
+    a,
+    name: nameOf(a),
+    total: Number(p.total),
+    spent: Number(p.spent),
+    rate: Number(p.rate),
+    power: Number(p.power),
+    mega: p.extra === undefined ? Number(p.mega ?? 0) : extra & 0xff,
+    farm: p.extra === undefined ? Number(p.farm ?? 0) : (extra >> 8) & 0xff,
+    combo: p.extra === undefined ? Number(p.combo ?? 0) : (extra >> 16) & 0xff,
+    magnet: p.extra === undefined ? Number(p.magnet ?? 0) : (extra >>> 24) & 0xff,
+    boostUntil: Number(p.boostUntil ?? 0),
+    round: Number(p.round),
+    b: Number(b), // bloc du dernier règlement → le client projette total + passif × (bloc courant − b)
+  }
+}
 
 async function loadSnapshot(blockTag = 'latest') {
   const out = []

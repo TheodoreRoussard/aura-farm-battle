@@ -3,7 +3,7 @@
 //   createPlayer() : wallet jetable + envoi des taps.
 import { createPublicClient, encodeFunctionData, http } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
-import { ABI, GAS, NETWORKS } from '../../shared/config.mjs'
+import { ABI, GAS, NETWORKS, boostBlocks, BLOCK_MS, levelsOf, passivePerBlock, tapValue } from '../../shared/config.mjs'
 import { nameOf } from '../../shared/names.mjs'
 import { TxPump } from '../../shared/pump.mjs'
 
@@ -117,7 +117,7 @@ export function createLive() {
 export function projected(p, live) {
   if (!p || p.round !== live.game.round) return 0
   const nowB = Math.min(live.head, live.game.endBlock)
-  return p.total + (nowB > p.b ? p.rate * (nowB - p.b) : 0)
+  return p.total + (nowB > p.b ? passivePerBlock(p) * (nowB - p.b) : 0)
 }
 
 export function ranking(live) {
@@ -157,6 +157,9 @@ export function createPlayer(liveStore) {
     room: new URLSearchParams(location.search).get('room') ?? localStorage.getItem('aura.room') ?? '',
     balance: null, // MON du wallet jetable = "énergie"
     pendingTaps: 0, // taps pas encore envoyés
+    pendingAura: 0, // aura optimiste de ces taps (valeur au moment du tap : le bonus x5 peut changer entre-temps)
+    boostEnd: 0, // fin locale du bonus (Date.now()) : affichage immédiat, avant la confirmation on-chain
+    claiming: false,
     unconfirmed: new Map(), // hash → { count, at } : taps envoyés, pas encore vus on-chain
     lastLatency: null,
     myBlocks: new Map(), // n° de bloc → { count: mes taps inclus dans ce bloc, at: quand je l'ai appris } (frise de blocs)
@@ -172,7 +175,7 @@ export function createPlayer(liveStore) {
     rpcUrls: NET.http,
     onDropped: (items) => {
       // tx abandonnées par le chien de garde : on remet leurs taps dans la file
-      for (const it of items) if (it.meta?.count) s.pendingTaps += it.meta.count
+      for (const it of items) if (it.meta?.count) (s.pendingTaps += it.meta.count), (s.pendingAura += it.meta.aura ?? 0)
       store.notify()
     },
   })
@@ -218,7 +221,7 @@ export function createPlayer(liveStore) {
         await sleep(1500)
       }
       const onchain = await publicClient.readContract({ address: live.farm ?? (await waitFarm()), abi: ABI, functionName: 'players', args: [address] })
-      if (onchain[4] === 0) {
+      if (onchain.power === 0) {
         setPhase('joining')
         await pump.send({ to: live.farm, data: call('join'), gas: GAS.join })
         if (!(await pump.drain(10000))) throw new Error('join() non confirmé')
@@ -252,17 +255,20 @@ export function createPlayer(liveStore) {
     s.myTxs = [...s.myTxs.slice(-19), { hash: it.tx, count: mine.count, sentAt: mine.at, block: it.p.b, seenMs: ms, finalMs: null }]
   })
 
+  const boosted = () => Date.now() < s.boostEnd || (live.players.get(address)?.boostUntil ?? 0) > live.head
   const canSend = () => s.phase === 'ready' && live.head >= live.game.startBlock && live.head < live.game.endBlock - SEND_MARGIN_BLOCKS
 
   function flush() {
     if (!canSend() || s.pendingTaps === 0) return
     const count = Math.min(s.pendingTaps, live.game.maxPerTx)
+    const aura = (s.pendingAura * count) / s.pendingTaps
     s.pendingTaps -= count
+    s.pendingAura -= aura
     s.txSent++
     pump
-      .send({ to: live.farm, data: call('tap', [count]), gas: GAS.tap, meta: { count } })
-      .then((hash) => s.unconfirmed.set(hash, { count, at: Date.now() }))
-      .catch(() => (s.pendingTaps += count))
+      .send({ to: live.farm, data: call('tap', [count]), gas: GAS.tap, meta: { count, aura } })
+      .then((hash) => s.unconfirmed.set(hash, { count, aura, at: Date.now() }))
+      .catch(() => ((s.pendingTaps += count), (s.pendingAura += aura)))
   }
 
   let flushTimer = null
@@ -277,7 +283,7 @@ export function createPlayer(liveStore) {
   setInterval(async () => {
     const now = Date.now()
     for (const [h, u] of s.unconfirmed) if (now - u.at > UNCONFIRMED_TTL) s.unconfirmed.delete(h) // tx revert ou perdue
-    if (roundPhase(live) === 'over') s.pendingTaps = 0
+    if (roundPhase(live) === 'over') (s.pendingTaps = 0), (s.pendingAura = 0)
     if (s.phase !== 'ready') return
     try {
       s.balance = await pump.balance()
@@ -296,6 +302,7 @@ export function createPlayer(liveStore) {
     tap() {
       if (!canSend()) return false
       s.pendingTaps++
+      s.pendingAura += tapValue(levelsOf(live.players.get(address), live.game.round), boosted())
       if (live.game.maxPerTx === 1) flush() // mode "1 tap = 1 transaction" : envoi immédiat
       store.notify()
       return true
@@ -312,6 +319,33 @@ export function createPlayer(liveStore) {
         s.buying = false
         store.notify()
       }
+    },
+    /** Bonus x5 actif ? (fin locale, ou fin confirmée on-chain) */
+    boosted,
+    /** Touche la bulle : envoie claimBonus() et active le x5 tout de suite à l'écran. */
+    async claimBonus() {
+      if (!canSend() || s.claiming) return false
+      const lv = levelsOf(live.players.get(address), live.game.round)
+      s.claiming = true
+      s.boostEnd = Date.now() + boostBlocks(lv.magnet) * BLOCK_MS
+      flush() // les taps en attente partent AVANT le bonus (ordre des nonces) : ils ne sont pas x5
+      store.notify()
+      try {
+        await pump.send({ to: live.farm, data: call('claimBonus'), gas: GAS.bonus })
+        return true
+      } catch {
+        s.boostEnd = 0
+        return false
+      } finally {
+        s.claiming = false
+        store.notify()
+      }
+    },
+    /** Aura optimiste des taps faits mais pas encore confirmés on-chain (en file + en vol). */
+    optimisticAura() {
+      let n = s.pendingAura
+      for (const u of s.unconfirmed.values()) n += u.aura ?? 0
+      return n
     },
     /** Taps faits mais pas encore confirmés on-chain (en file + en vol). */
     optimisticTaps() {

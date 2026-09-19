@@ -130,7 +130,7 @@ for (const p of players) for (const [k, v] of Object.entries(p.pump.stats.rpcErr
 const onchain = await publicClient.readContract({ address: farm, abi: ABI, functionName: 'snapshot', args: [0n, 1000n] })
 let onchainTaps = 0n
 onchain[2].forEach((addr, i) => {
-  if (byAddress.has(addr.toLowerCase()) && onchain[3][i].round === g[0]) onchainTaps += onchain[3][i].total
+  if (byAddress.has(addr.toLowerCase()) && onchain[3][i].round === g[0]) onchainTaps += BigInt(onchain[3][i].total)
 })
 
 console.log('\n5/5 bilan')

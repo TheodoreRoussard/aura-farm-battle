@@ -23,8 +23,15 @@ contract AuraFarmTest is Test {
         vm.roll(vm.getBlockNumber() + delay);
     }
 
-    function _player(address who) internal view returns (AuraFarm.Player memory p) {
-        (p.total, p.spent, p.lastBlock, p.rate, p.power, p.round) = farm.players(who);
+    function _player(address who) internal view returns (AuraFarm.Player memory) {
+        return farm.players(who);
+    }
+
+    /// @dev Donne `n` aura à `who` (tap(20) x n/20, mode 1 tx = 20 taps à 1 aura).
+    function _earn(address who, uint256 n) internal {
+        vm.startPrank(who);
+        for (uint256 i = 0; i < n / 20; i++) farm.tap(20);
+        vm.stopPrank();
     }
 
     function test_TapAddsCountTimesPower() public {
@@ -151,5 +158,100 @@ contract AuraFarmTest is Test {
         vm.prank(alice);
         farm.join();
         assertEq(farm.rosterLength(), 2);
+    }
+
+    function test_MegaAndComboMultiplyTaps() public {
+        _start(0, 1000, 20);
+        _earn(alice, 200);
+        vm.startPrank(alice);
+        farm.buy(farm.KIND_MEGA()); // 150 → +5 par tap : 6 aura par tap
+        farm.tap(10);
+        assertEq(_player(alice).total, 200 + 60);
+        vm.stopPrank();
+    }
+
+    function test_ComboAddsTenPercentPerLevel() public {
+        _start(0, 1000, 20);
+        _earn(alice, 400);
+        vm.startPrank(alice);
+        farm.buy(farm.KIND_COMBO()); // 400 → +10 %
+        farm.tap(10); // 10 taps x 1 x 110 / 100 = 11
+        assertEq(_player(alice).total, 400 + 11);
+        vm.stopPrank();
+    }
+
+    function test_FarmAddsEightPerBlock() public {
+        _start(0, 1000, 20);
+        _earn(alice, 260);
+        vm.startPrank(alice);
+        farm.buy(farm.KIND_FARM()); // 250 → +8 aura par bloc
+        vm.roll(vm.getBlockNumber() + 10);
+        assertEq(farm.totalOf(alice), 260 + 80);
+        vm.stopPrank();
+    }
+
+    function test_BonusMultipliesTapsFiveTimesThenExpires() public {
+        _start(0, 1000, 20);
+        vm.startPrank(alice);
+        farm.claimBonus();
+        farm.tap(4);
+        assertEq(_player(alice).total, 4 * 5);
+        vm.roll(vm.getBlockNumber() + farm.BOOST_BLOCKS()); // bonus terminé
+        farm.tap(4);
+        assertEq(_player(alice).total, 20 + 4);
+        vm.stopPrank();
+    }
+
+    function test_BonusCooldown() public {
+        _start(0, 1000, 20);
+        vm.startPrank(alice);
+        farm.claimBonus();
+        vm.roll(vm.getBlockNumber() + farm.BOOST_BLOCKS() + 5);
+        vm.expectRevert(AuraFarm.BonusCooldown.selector);
+        farm.claimBonus();
+        vm.roll(vm.getBlockNumber() + farm.BONUS_GAP());
+        farm.claimBonus(); // repos écoulé
+        vm.stopPrank();
+    }
+
+    function test_MagnetExtendsBonus() public {
+        _start(0, 1000, 20);
+        _earn(alice, 200);
+        vm.startPrank(alice);
+        farm.buy(farm.KIND_MAGNET());
+        farm.claimBonus();
+        assertEq(_player(alice).boostUntil, uint32(vm.getBlockNumber()) + farm.BOOST_BLOCKS() + farm.BOOST_PER_MAGNET());
+        vm.stopPrank();
+    }
+
+    function test_BonusRequiresLiveRound() public {
+        vm.prank(alice);
+        vm.expectRevert(AuraFarm.RoundNotLive.selector);
+        farm.claimBonus();
+    }
+
+    function test_NewRoundResetsUpgradesAndBonus() public {
+        _start(0, 10, 20);
+        _earn(alice, 200);
+        vm.startPrank(alice);
+        farm.buy(farm.KIND_MEGA());
+        farm.claimBonus();
+        vm.stopPrank();
+        vm.roll(vm.getBlockNumber() + 10);
+
+        _start(0, 100, 20);
+        vm.prank(alice);
+        farm.tap(1);
+        AuraFarm.Player memory p = _player(alice);
+        assertEq(p.mega, 0);
+        assertEq(p.boostUntil, 0);
+        assertEq(p.total, 1);
+    }
+
+    function test_RevertBadKind() public {
+        _start(0, 100, 20);
+        vm.prank(alice);
+        vm.expectRevert(AuraFarm.BadKind.selector);
+        farm.buy(9);
     }
 }

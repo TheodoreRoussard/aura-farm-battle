@@ -85,6 +85,7 @@ export default function Screen() {
                   <span className={`font-display relative grid h-8 w-8 shrink-0 place-items-center rounded-full text-base tabular-nums ${PODIUM[i] ?? 'opacity-60'}`}>{i + 1}</span>
                   <Brainrot stage={stageOf(p.score)} outline={1} className="relative h-9 w-9 shrink-0" />
                   <span className={`relative flex-1 truncate ${i === 0 ? 'font-bold' : ''}`}>{p.name}</span>
+                  {p.boostUntil > head && <span className="relative rounded bg-neon px-1.5 py-0.5 text-[11px] font-bold text-ink">🔥 x5</span>}
                   {p.speed > 25 && <span className="relative rounded bg-rosso px-1.5 py-0.5 text-[11px] font-bold text-ink">SUS</span>}
                   <span className="relative w-20 text-right text-sm tabular-nums opacity-50">{p.speed ?? 0} / s</span>
                   <span className="font-display relative w-24 text-right text-2xl tabular-nums">{p.score.toLocaleString('fr-FR')}</span>
