@@ -38,7 +38,7 @@ cd web && pnpm dev                                          # terminal 3
 
 ## Passer sur le testnet
 
-État au 2026-09-19 : **déployé et validé sur le testnet** — AuraFarm `0x066b11d6732812d92338b89ed5fdd3db42f8a1f5`,
+État au 2026-09-19 : **déployé et validé sur le testnet** — AuraFarm v2 `0x623a4c9d7dd983ba566e48b128592d141d92303e`,
 AuraDrip `0x29d00269588c49353cf57e4e18d03983db1a2d6a` (`deployments/10143.json`), admin `0x538fECF0D180cBd97752F4b51b5BdEbC023119Bb`.
 Pour repartir de zéro :
 

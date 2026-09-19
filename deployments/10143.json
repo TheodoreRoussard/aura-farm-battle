@@ -1,8 +1,8 @@
 {
-  "address": "0x066b11d6732812d92338b89ed5fdd3db42f8a1f5",
-  "deployBlock": 63879986,
+  "address": "0x623a4c9d7dd983ba566e48b128592d141d92303e",
+  "deployBlock": 63891834,
   "host": "0x538fECF0D180cBd97752F4b51b5BdEbC023119Bb",
-  "txHash": "0x06d1a34157f90723896c49266f4584fdc6ee00a24bafb1cd53c3c35599bce549",
+  "txHash": "0x3ce917c8cf88905264e5dcc3e8a7dec90da0390654c4d74ca8772d1c451c00a9",
   "drip": "0x29d00269588c49353cf57e4e18d03983db1a2d6a",
   "dripTxHash": "0x0b7fc3bb5b9704d6d8afedf8659918e8aa9bc7c11d484b820fd85cc6bc394ddb"
 }
