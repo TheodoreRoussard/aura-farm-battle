@@ -55,6 +55,9 @@ Pour repartir de zéro :
    Prérequis : `brew install cloudflared`. Le serveur tourne sur le laptop parce que la clé admin (les MON) ne doit
    pas quitter la machine et que Vercel ne sait pas garder de WebSocket ouvert. L'URL d'un tunnel rapide change à
    chaque lancement : relancer `pnpm prod` redéploie le front tout seul. `pnpm prod -- --no-deploy` = sans Vercel.
+   **Lancer une partie** : ouvre https://aura-farm-battle.vercel.app/screen (lien « Écran géant » depuis la page joueur),
+   tape le code régie (`ADMIN_TOKEN` du `.env`, affiché aussi par `pnpm prod`) → QR code + bouton « Lancer un round ».
+   Le code est gardé dans le navigateur et n'apparaît jamais dans l'URL projetée.
 5. Front sur Vercel : projet `aura-farm-battle` → https://aura-farm-battle.vercel.app (chaque push sur `main` redéploie).
    Le projet est lié à la RACINE du dépôt (pas à `web/`) parce que `web/` importe `../shared/`, qui importe `viem`
    installé à la racine ; tout le réglage est dans `vercel.json` (build `pnpm -C web build`, sortie `web/dist`,

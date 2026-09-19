@@ -234,8 +234,13 @@ async function handleHttp(req, res) {
       return send(200, { ok: true, hash, amount: formatEther(DRIP) })
     }
 
+    if (url.pathname === '/admin/check') {
+      if (body.token !== ADMIN_TOKEN) return send(403, { error: 'Code régie invalide' })
+      return send(200, { ok: true, room: ROOM_CODE })
+    }
+
     if (url.pathname === '/admin/start' || url.pathname === '/admin/stop') {
-      if (body.token !== ADMIN_TOKEN) return send(403, { error: 'Token admin invalide' })
+      if (body.token !== ADMIN_TOKEN) return send(403, { error: 'Code régie invalide' })
       if (body.flushMs) queue({ t: 'cfg', flushMs: (flushMs = Math.max(100, Number(body.flushMs))) })
       const data = url.pathname === '/admin/stop'
         ? call('stopRound')

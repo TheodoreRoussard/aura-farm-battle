@@ -139,7 +139,10 @@ export default function Play() {
       </section>
 
       <footer className="mt-5 flex items-center justify-between text-xs">
-        <button className="font-semibold underline decoration-offwhite/40 underline-offset-4" onPointerDown={() => setDrawer(true)}>Hall of Shame</button>
+        <span className="flex gap-4">
+          <button className="font-semibold underline decoration-offwhite/40 underline-offset-4" onPointerDown={() => setDrawer(true)}>Hall of Shame</button>
+          <a className="underline decoration-offwhite/40 underline-offset-4 opacity-70" href={`/screen?room=${encodeURIComponent(me.room)}`} target="_blank" rel="noreferrer">Écran géant</a>
+        </span>
         <p className="tabular-nums opacity-60" title={me.balance !== null ? `${formatEther(me.balance)} MON` : ''}>
           {live.connected ? `${txLeft === null ? '…' : txLeft > 999 ? '999+' : txLeft} tx restantes${me.lastLatency ? ` · ${me.lastLatency} ms` : ''}` : 'reconnexion…'}
         </p>
@@ -212,6 +215,7 @@ function RoomForm({ onSubmit }) {
       <p className="mt-3 text-sm opacity-70">Entre le code affiché sur l'écran géant</p>
       <input value={code} onChange={(e) => setCode(e.target.value)} autoCapitalize="characters" className="mt-8 w-44 rounded-2xl bg-offwhite/10 p-3 text-center text-2xl font-bold uppercase tracking-widest outline-none placeholder:opacity-30" placeholder="CODE" />
       <button className="mt-4 rounded-full bg-offwhite px-8 py-3 text-sm font-semibold text-ink" onPointerDown={() => code && onSubmit(code)}>Rejoindre</button>
+      <a className="mt-12 text-xs underline decoration-offwhite/40 underline-offset-4 opacity-70" href="/screen">Tu animes la partie ? Écran géant et régie</a>
     </Center>
   )
 }

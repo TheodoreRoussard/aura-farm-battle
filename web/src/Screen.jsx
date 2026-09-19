@@ -1,6 +1,7 @@
 // Écran géant projeté pendant le pitch : c'est LUI la démo.
-//   /screen?room=AURA                → affichage seul
-//   /screen?room=AURA&token=SECRET   → + régie (lancer / arrêter un round)
+//   /screen                          → classement ; le formulaire "Régie" demande le code régie (ADMIN_TOKEN du .env)
+//   /screen?room=AURA&token=SECRET   → lien direct affiché par `pnpm prod` : régie déverrouillée d'emblée
+// Le code régie est rangé dans le localStorage puis RETIRÉ de la barre d'adresse : cet écran est projeté en public.
 import QRCode from 'qrcode'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BLOCK_MS, GAS, stageOf } from '../../shared/config.mjs'
@@ -10,9 +11,25 @@ import { useStore } from './hooks.js'
 
 const liveStore = createLive()
 const params = new URLSearchParams(location.search)
-const ROOM = params.get('room') ?? ''
-const TOKEN = params.get('token')
-const JOIN_URL = `${location.origin}/?room=${encodeURIComponent(ROOM)}`
+const stored = (key) => {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null // navigation privée, stockage bloqué : on s'en passe
+  }
+}
+const store = (key, value) => {
+  try {
+    value === null ? localStorage.removeItem(key) : localStorage.setItem(key, value)
+  } catch {}
+}
+if (params.get('token')) {
+  store('aura.token', params.get('token'))
+  params.delete('token')
+  const rest = params.toString()
+  history.replaceState(null, '', `${location.pathname}${rest ? `?${rest}` : ''}`)
+}
+const INITIAL_ROOM = (params.get('room') ?? stored('aura.room') ?? '').toUpperCase()
 const BLOCK_GAS_LIMIT = 150_000_000 // capacité d'un bloc Monad
 const MON_PER_TX = Number(GAS.tap) * 100e-9 // gas limit × base fee plancher (100 gwei)
 const RIBBON = 60 // blocs affichés dans la frise (~18 s)
@@ -23,8 +40,27 @@ const ROW_PX = 56 + ROW_GAP_PX // ligne du classement (h-14) + marge
 
 export default function Screen() {
   const live = useStore(liveStore)
+  const [room, setRoom] = useState(INITIAL_ROOM)
+  const [token, setToken] = useState(() => stored('aura.token'))
   const [qr, setQr] = useState(null)
-  useEffect(() => void QRCode.toDataURL(JOIN_URL, { margin: 0, width: 320 }).then(setQr), [])
+  useEffect(() => {
+    if (!room) return setQr(null)
+    QRCode.toDataURL(`${location.origin}/?room=${encodeURIComponent(room)}`, { margin: 0, width: 320 }).then(setQr)
+  }, [room])
+
+  // Régie déverrouillée : le serveur a validé le code et renvoie le code de salle (→ QR code, URL partageable).
+  const unlock = (nextToken, nextRoom) => {
+    store('aura.token', nextToken)
+    setToken(nextToken)
+    if (nextRoom) {
+      setRoom(nextRoom)
+      history.replaceState(null, '', `${location.pathname}?room=${encodeURIComponent(nextRoom)}`)
+    }
+  }
+  const lock = () => {
+    store('aura.token', null)
+    setToken(null)
+  }
 
   // Nombre de lignes du classement = ce qui tient dans la hauteur réellement disponible de la liste
   // (mesurée, pas devinée) : jamais de ligne coupée en deux, quelle que soit la taille de la fenêtre.
@@ -104,9 +140,19 @@ export default function Screen() {
 
       <aside className="flex flex-col">
         <div className="shrink-0 rounded-3xl bg-offwhite p-5 text-center text-ink">
-          {qr && <img src={qr} alt="QR code pour rejoindre" className="mx-auto aspect-square max-h-[26vh] w-auto" />}
+          {qr ? (
+            <img src={qr} alt="QR code pour rejoindre" className="mx-auto aspect-square max-h-[26vh] w-auto" />
+          ) : (
+            <p className="px-2 py-10 text-sm opacity-60">Le QR code apparaît une fois la régie déverrouillée.</p>
+          )}
           <p className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] opacity-50">code</p>
-          <p className="font-display text-3xl tracking-widest">{ROOM || '—'}</p>
+          <p className="font-display text-3xl tracking-widest">{room || '—'}</p>
+        </div>
+
+        {/* Régie juste sous le QR code : toujours visible, même sur une fenêtre peu haute */}
+        <div className="mt-5 shrink-0">
+          {token ? <Controls phase={phase} token={token} onBadToken={lock} /> : <Unlock onUnlock={unlock} />}
+          {!live.connected && <p className="mt-3 text-center text-xs text-rosso">reconnexion au serveur…</p>}
         </div>
 
         <div className="mt-10">
@@ -122,10 +168,6 @@ export default function Screen() {
           <Line label="Joueurs" value={board.length} />
         </dl>
 
-        <div className="mt-auto pt-8">
-          {TOKEN && <Controls phase={phase} />}
-          {!live.connected && <p className="mt-3 text-center text-xs text-rosso">reconnexion au serveur…</p>}
-        </div>
       </aside>
     </div>
   )
@@ -152,14 +194,49 @@ const MODES = [
   { label: 'Finale · 1 tap = 1 tx', maxPerTx: 1, flushMs: 300 },
 ]
 
-function Controls({ phase }) {
+const postJson = async (path, body) => {
+  const res = await fetch(`${SERVER_URL}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  return { res, json: await res.json().catch(() => ({})) }
+}
+
+// Formulaire de régie : on y tape le code régie (ADMIN_TOKEN du fichier .env du serveur). Le serveur le valide et
+// renvoie le code de salle : l'hôte n'a qu'UNE chose à connaître, et rien de secret ne reste dans l'URL projetée.
+function Unlock({ onUnlock }) {
+  const [value, setValue] = useState('')
+  const [msg, setMsg] = useState('')
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!value.trim()) return
+    try {
+      const { res, json } = await postJson('/admin/check', { token: value.trim() })
+      if (!res.ok) return setMsg(json.error ?? `Erreur ${res.status}`)
+      onUnlock(value.trim(), json.room)
+    } catch {
+      setMsg('Serveur injoignable')
+    }
+  }
+  return (
+    <form onSubmit={submit} className="space-y-2">
+      <p className="label">Régie</p>
+      <input type="password" value={value} onChange={(e) => setValue(e.target.value)} placeholder="Code régie" autoComplete="off" className="w-full rounded-xl bg-offwhite/10 px-3 py-2 text-sm text-offwhite outline-none placeholder:opacity-40" />
+      <button className="w-full rounded-full bg-offwhite py-3 text-sm font-semibold text-ink">Déverrouiller la régie</button>
+      {msg && <p className="text-xs text-rosso">{msg}</p>}
+    </form>
+  )
+}
+
+function Controls({ phase, token, onBadToken }) {
   const [mode, setMode] = useState(0)
   const [seconds, setSeconds] = useState(30)
   const [msg, setMsg] = useState('')
   const post = async (path, body) => {
-    const res = await fetch(`${SERVER_URL}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: TOKEN, ...body }) })
-    const json = await res.json().catch(() => ({}))
-    setMsg(res.ok ? '' : `Erreur : ${json.error}`)
+    try {
+      const { res, json } = await postJson(path, { token, ...body })
+      if (res.status === 403) return onBadToken() // code périmé (ADMIN_TOKEN changé) : retour au formulaire
+      setMsg(res.ok ? '' : `Erreur : ${json.error}`)
+    } catch {
+      setMsg('Serveur injoignable')
+    }
   }
   const start = () => post('/admin/start', { delay: 17, duration: Math.round((seconds * 1000) / BLOCK_MS), maxPerTx: MODES[mode].maxPerTx, flushMs: MODES[mode].flushMs })
   const running = phase === 'live' || phase === 'countdown'

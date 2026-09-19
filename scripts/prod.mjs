@@ -127,6 +127,7 @@ if (DEPLOY) {
 console.log(`
 ────────────────────────────────────────────────────────────────────
   Écran géant (régie) : ${FRONT}/screen?room=${ROOM}&token=${TOKEN}
+                        (ou ${FRONT}/screen puis le code régie : ${TOKEN})
   Joueurs             : ${FRONT}/?room=${ROOM}   (QR code de l'écran géant)
   Serveur             : ${tunnel}/health
 
