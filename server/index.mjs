@@ -19,7 +19,7 @@ const PORT = Number(process.env.PORT ?? 8787)
 const ROOM_CODE = process.env.ROOM_CODE ?? 'AURA'
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? 'change-moi'
 const DRIP = parseEther(process.env.DRIP_MON ?? '0.15') // ≈ 30 tx de tap ; petites doses = peu de MON dormants sur les téléphones
-const DRIP_MAX_PER_ADDRESS = Number(process.env.DRIP_MAX_PER_ADDRESS ?? 4) // plafond par joueur = DRIP_MON × ce nombre
+const DRIP_MAX_PER_ADDRESS = Number(process.env.DRIP_MAX_PER_ADDRESS ?? 4) // plafond par joueur ET PAR ROUND = DRIP_MON × ce nombre
 let flushMs = Number(process.env.FLUSH_MS ?? 300) // période d'envoi des taps côté téléphone (300 = 1 tx par bloc)
 const DRIP_BUDGET = parseEther(process.env.DRIP_BUDGET_MON ?? '30') // plafond de MON distribués par session du serveur
 let dripSpent = 0n
@@ -50,7 +50,7 @@ const setCommit = (state, n) => {
 let lastFinal = null // renvoyé aux clients qui (re)chargent la page après la fin du round
 const players = new Map() // adresse (minuscules) → { a, name, total, spent, rate, power, round, b }
 const perBlock = new Map() // blockId → { n, txs, taps } pour le compteur de débit
-const drips = new Map() // adresse → nombre de dotations
+const drips = new Map() // adresse → nombre de dotations depuis le début du round (remis à zéro à chaque RoundStarted)
 // adresse → pseudo choisi. Gardé sur disque : un redémarrage du serveur (tunnel, mise à jour) en plein jeu
 // ne doit pas remettre les noms générés sur l'écran géant (les téléphones ne renvoient le leur qu'au chargement).
 const NAMES_FILE = path.join(ROOT, `deployments/names-${net.chain.id}.json`)
@@ -165,8 +165,12 @@ openFeed({
   onEvent: ({ name, args, log, first }) => {
     if (!first) return // les re-publications (Voted, Finalized...) n'apportent rien : valeurs absolues
     if (name === 'RoundStarted' || name === 'RoundStopped') {
-      if (name === 'RoundStarted') game = { round: Number(args.round), startBlock: Number(args.startBlock), endBlock: Number(args.endBlock), maxPerTx: Number(args.maxPerTx) }
-      else game = { ...game, endBlock: Number(args.endBlock) }
+      if (name === 'RoundStarted') {
+        game = { round: Number(args.round), startBlock: Number(args.startBlock), endBlock: Number(args.endBlock), maxPerTx: Number(args.maxPerTx) }
+        // Plafond par round, pas par session : sinon un joueur assidu se retrouve « Dotation épuisée » dès le
+        // 2e ou 3e round de la journée. Le plafond global (DRIP_BUDGET_MON) protège toujours le distributeur.
+        drips.clear()
+      } else game = { ...game, endBlock: Number(args.endBlock) }
       return queue({ t: 'game', game })
     }
     if (name === 'Joined') {
