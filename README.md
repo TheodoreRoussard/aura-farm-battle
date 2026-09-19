@@ -1,124 +1,161 @@
-# Aura Farm Battle — Monad Blitz
+# Aura Farm Battle 🍝⚡
 
-Clicker "brainrot italien" où chaque envoi de taps est une vraie transaction Monad, avec un écran
-géant qui montre le classement et le débit en direct.
+**Un clicker multijoueur "brainrot italien" où chaque tap part on-chain sur Monad.**
+Toute la salle scanne un QR code, tape sur son personnage pendant 30 secondes, et un écran géant affiche en direct
+le classement, les transactions par seconde et chaque bloc qui passe de *proposé* à *finalisé*.
+
+> Projet réalisé pour le **Monad Blitz Paris**.
+
+| | |
+|---|---|
+| 🎮 **Jouer** (téléphone) | https://aura-farm-battle.vercel.app/?room=AURA |
+| 📺 **Écran géant + régie** (ordinateur) | https://aura-farm-battle.vercel.app/screen |
+| 📜 **Contrat du jeu** (testnet) | [`AuraFarm` 0x623a…303e](https://testnet.monadvision.com/address/0x623a4c9d7dd983ba566e48b128592d141d92303e) |
+| 💧 **Distributeur de MON** (testnet) | [`AuraDrip` 0x29d0…2d6a](https://testnet.monadvision.com/address/0x29d00269588c49353cf57e4e18d03983db1a2d6a) |
+
+## Pourquoi c'est un jeu pour Monad
+
+Un clicker, c'est des milliers d'actions minuscules par minute. Sur la plupart des chaînes, il faudrait les regrouper
+hors chaîne et ne poster que le score final. Ici, **les taps partent en transactions, en continu, pendant la partie** :
+
+- **Blocs de 0,3 s** → le score d'un joueur est vu on-chain en ~300 ms et **finalisé en ~850 ms** (mesuré sur le testnet).
+- **Exécution parallèle** → chaque joueur n'écrit que dans **son propre slot de stockage** : aucune transaction de la salle
+  n'entre en conflit avec une autre, le cas idéal pour le parallélisme de Monad.
+- **MonadBFT rendu visible** → grâce à `monadLogs` / `monadNewHeads`, le téléphone et l'écran géant colorent chaque bloc
+  selon son état de consensus : proposé → voté → finalisé.
+- **Zéro friction** → pas de wallet à installer, pas de MON à avoir : le téléphone crée un wallet jetable et reçoit
+  automatiquement de quoi payer son gas.
+
+## Comment on joue
+
+1. **L'animateur** ouvre l'écran géant sur son ordinateur, tape le code régie : le QR code apparaît, la musique démarre.
+2. **Les joueurs** scannent le QR code, choisissent un pseudo. En ~5 s, leur wallet est créé, alimenté et inscrit on-chain.
+3. **Décompte 3-2-1, GO** : tout le monde tape sur son personnage pendant 30 s.
+4. L'aura débloque des **évolutions** (6 brainrots, de Chimpanzini Bananini à Tralalero Tralala) et des **améliorations** :
+
+   | Amélioration | Effet | Seuil de déblocage |
+   |---|---|---|
+   | ☕ Cappuccino Assassino | +1 aura par tap | 20, 80, 180… |
+   | 📈 Espresso Sigma | taps × 1,01, **composé** à chaque niveau | 10, 40, 90… |
+   | 🌿 Brr Brr Patapim | +1 aura par bloc, même sans taper | 30, 120, 270… |
+   | 🧲 Aimant à Bonus | le bonus dure ~2 s de plus | 200, 800… |
+
+   Les améliorations se **débloquent** quand l'aura atteint le seuil : rien n'est dépensé, le score reste l'aura totale.
+5. Une **bulle ⚡** apparaît de temps en temps : la toucher donne **AURA x5** pendant ~5 s (délai de repos vérifié par le contrat).
+6. Fin du round : le résultat **officiel** est relu dans l'état *finalisé* de la chaîne, puis affiché partout avec le podium.
+
+Sur le téléphone : top 3 en direct, notification « X t'a volé la 1re place », frise des blocs contenant *tes* taps,
+latence de chaque transaction. Sur l'écran géant : classement animé, compteur de transactions par seconde, ruban de blocs.
+
+## Architecture
 
 ```
-Téléphones (web/)  ── tx signées en local ──▶  RPC Monad testnet  ──▶  contracts/AuraFarm.sol
-      ▲                                                                       │ events
-      └── WebSocket : classement, bloc courant ──  server/  ◀── monadLogs ────┘
-                                                   (dotation MON · indexeur · régie)
+Téléphones (web/)  ── tx signées en local ──▶  RPC Monad testnet  ──▶  AuraFarm.sol
+      ▲                                                                   │ events (monadLogs)
+      └── WebSocket : classement, bloc courant ──  server/  ◀─────────────┘
+                                                   dotations (via AuraDrip.sol) · indexeur · régie
 Écran géant (web/ → /screen) ◀─────────────────────┘
 ```
 
+- **Les taps ne passent pas par le serveur** : chaque téléphone signe ses transactions avec son wallet jetable et les
+  envoie directement au RPC. Le serveur ne fait qu'alimenter les wallets, indexer les events et piloter les rounds.
+- **Le téléphone ne demande rien à la chaîne avant d'envoyer** (`shared/pump.mjs`) : nonce compté en local, limite de gas
+  fixe, frais en cache. Un chien de garde renvoie les transactions perdues (Monad n'a pas de mempool global).
+- **Taps agrégés** : selon le mode choisi par la régie, jusqu'à 20 taps partent dans une même transaction, toutes les
+  secondes (Éco), à chaque bloc (Bloc) ou 1 tap = 1 transaction (Finale).
+- **Affichage optimiste** : le compteur monte au tap, la chaîne confirme derrière ; les améliorations, elles,
+  attendent l'aura confirmée on-chain.
+
+### Le contrat `AuraFarm.sol`
+
+- **Tout l'état d'un joueur tient dans un seul slot de 256 bits** (aura, niveaux, bonus, report des fractions) :
+  un `tap()` = une lecture + une écriture, à **gas constant**. Sur Monad on paie la limite de gas, pas le gas consommé :
+  la limite est fixée en dur, jamais estimée pendant le jeu.
+- **Revenu passif réglé paresseusement** : rien ne tourne en tâche de fond, le contrat calcule `taux × blocs écoulés`
+  à la prochaine interaction du joueur.
+- **Remise à zéro paresseuse** entre les rounds : le premier tap d'un round réinitialise le slot, sans boucle sur les joueurs.
+- **Le multiplicateur x1,01 composé** est calculé à l'achat, pas au tap ; les centièmes d'aura sont reportés d'une
+  transaction à l'autre, rien n'est perdu à l'arrondi.
+- **Events en valeurs absolues** : recevoir trois fois le même log (proposé, voté, finalisé) est sans effet.
+- `snapshot()` reconstruit tout le classement en un appel (`eth_getLogs` est limité à ~100 blocs).
+
+### Le distributeur `AuraDrip.sol`
+
+Sur Monad, un compte sous 10 MON ne peut envoyer de **valeur** qu'une fois tous les 3 blocs (*reserve balance*) :
+trente joueurs qui scannent en même temps = une seule dotation qui passe. L'admin alimente donc le contrat une fois,
+puis chaque dotation est un appel **sans valeur** (l'admin ne paie que du gas) qui sert jusqu'à 20 joueurs d'un coup.
+
+## Mesures
+
+| | |
+|---|---|
+| Tap vu on-chain (testnet, p50) | **313 ms** |
+| Tap finalisé (testnet, p50) | **850 ms** |
+| Gas d'un `tap()` (1 ou 20 taps agrégés) | ~50 000, limite 51 800 |
+| Coût d'une transaction | 0,0052 MON (limite × 100 gwei) |
+| Scan du QR code → prêt à jouer | ~5 s (dotation, 3 blocs d'attente imposés par Monad, inscription) |
+
+**Simulation d'une partie** (24 joueurs, 3 rounds, avec le vrai code du téléphone, sur un Monad local) :
+0 transaction annulée en modes Éco et Finale, mêmes scores sur la chaîne, le serveur et les téléphones,
+retour automatique des téléphones 10 s après une coupure du serveur.
+
+**Coût d'un round de 30 s avec 30 joueurs** : ~4,7 MON en mode Éco (1 tx/s), ~15,5 MON en mode Bloc, ~28 MON en Finale.
+
+## Pièges Monad rencontrés (et traités)
+
+- **Reserve balance** : les transferts de valeur de l'admin étaient annulés sans erreur RPC → distributeur `AuraDrip`.
+- **Compte fraîchement alimenté** : il faut attendre 3 blocs avant sa première transaction (écran « Charging aura »).
+- **Pas de mempool global** : une transaction perdue bloque toutes les suivantes → nonces locaux + chien de garde.
+- **`join()` accepté puis jamais inclus** : l'inscription est vérifiée *sur la chaîne*, avec renvoi (+1 gas pour changer le hash).
+- **`monadLogs` republie chaque log à chaque état du bloc** → dédoublonnage sur `(blockId, logIndex)`.
+- **Gas facturé sur la limite** → limites mesurées puis fixées en dur (`shared/config.mjs`).
+- **`block.timestamp` à la seconde** (3-4 blocs par seconde) → rounds et revenu passif comptés en `block.number`.
+
+## Structure du dépôt
+
 | Dossier | Rôle |
 |---|---|
-| `contracts/` | `AuraFarm.sol` (le jeu) + `AuraDrip.sol` (distributeur de MON) + tests Foundry (`network = "monad"` → barème de gas Monad / MIP-8) |
-| `shared/` | code commun front / serveur / scripts : config + ABI, `TxPump` (nonces locaux), `openFeed` (monadLogs) |
-| `scripts/` | `deploy`, `gas` (mesure), `load` (test de charge), `round` (régie en CLI), `drip` (solde / recharge du distributeur), `prod` (mise en prod) |
-| `server/` | dotation de MON, classement en mémoire, lancement des rounds |
-| `web/` | Vite + React + Tailwind : `/` = téléphone, `/screen` = écran géant |
+| `contracts/` | `AuraFarm.sol` (le jeu), `AuraDrip.sol` (distributeur de MON), tests Foundry (barème de gas Monad) |
+| `shared/` | code commun front / serveur / scripts : config + ABI, `TxPump` (envoi des tx), `openFeed` (monadLogs), pseudos |
+| `server/` | dotations, indexeur en mémoire, diffusion WebSocket, régie |
+| `web/` | Vite + React + Tailwind : `/` = téléphone, `/screen` = écran géant, `/sprites` = galerie des personnages |
+| `scripts/` | `demo`, `deploy`, `prod`, `gas` (mesure), `load` (test de charge), `round`, `drip` |
 
-## Démarrer en local (aucun MON nécessaire)
+## Lancer le projet en local (aucun MON nécessaire)
+
+Prérequis : Node 22, pnpm, [Foundry](https://getfoundry.sh) ≥ 1.8.
 
 ```sh
 pnpm install
-pnpm demo            # lance tout d'un coup (chaîne locale, contrat, serveur, front) — détail ci-dessous
-
-# ... ou étape par étape :
-cd contracts && forge build && cd ..                        # forge-std est versionné dans contracts/lib
-anvil --network monad --block-time 0.3 --host 0.0.0.0      # terminal 1 : Monad local, blocs de 0,3 s
-pnpm deploy:local                                           # terminal 2
-NETWORK=local ADMIN_TOKEN=dev pnpm server                   # terminal 2
-cd web && pnpm dev                                          # terminal 3
+pnpm demo      # chaîne Monad locale (anvil, blocs de 0,3 s), contrats, serveur et front en une commande
 ```
 
-- Téléphone : `http://<ip-du-laptop>:5173/?room=AURA` — écran : `http://localhost:5173/screen?room=AURA&token=dev`
+- Joueur : `http://<ip-du-laptop>:5173/?room=AURA` (même Wi-Fi) — écran géant : l'URL affichée par `pnpm demo`
+- Tests des contrats : `pnpm test:contracts`
 - Simuler une salle : `pnpm load -- --local --players 25 --seconds 25`
 
-## Passer sur le testnet
+## Déployer sur le testnet
 
-État au 2026-09-19 : **déployé et validé sur le testnet** — AuraFarm v2 `0x623a4c9d7dd983ba566e48b128592d141d92303e`,
-AuraDrip `0x29d00269588c49353cf57e4e18d03983db1a2d6a` (`deployments/10143.json`), admin `0x538fECF0D180cBd97752F4b51b5BdEbC023119Bb`.
-Pour repartir de zéro :
+1. `cast wallet new` → clé dans `.env` (`ADMIN_PRIVATE_KEY`, voir `.env.example`), MON du faucet sur cette adresse.
+   Choisir un `ADMIN_TOKEN` long : c'est le code régie.
+2. `pnpm deploy:testnet` : déploie `AuraFarm` et `AuraDrip`, et alimente le distributeur.
+   `-- --farm-only` ne redéploie que le jeu (en gardant le distributeur et ses MON), `-- --drip-only` que le distributeur.
+3. Contrôle : `pnpm load -- --players 3 --seconds 6` doit donner 0 transaction abandonnée et 0 revert.
+4. `pnpm prod` : lance le serveur, ouvre un tunnel HTTPS `cloudflared` vers lui, inscrit son URL dans Vercel
+   (`VITE_SERVER_URL`) et redéploie le front. Le serveur reste sur la machine de l'animateur : la clé admin ne la
+   quitte jamais, et Vercel ne sait pas garder de WebSocket ouvert.
+5. Le front est sur Vercel, projet lié à la racine du dépôt (`vercel.json`) : chaque push sur `main` le redéploie.
 
-1. `cast wallet new` → mets la clé dans `.env` (`ADMIN_PRIVATE_KEY`), envoie-lui tes MON du faucet.
-2. `pnpm deploy:testnet` : déploie AuraFarm puis AuraDrip, et verse dans le distributeur `DRIP_BUDGET_MON` (plafonné au
-   solde moins 0,6 MON gardés pour le gas). `-- --drip-only` ne redéploie que le distributeur ; `-- --farm-only` ne redéploie que le jeu (nouvelle version du contrat) et garde le distributeur et ses MON. Puis lance les commandes
-   `forge verify-contract ...` affichées (Sourcify, sans clé API).
-3. **Go / no-go** : `pnpm load -- --players 3 --seconds 6` (≈ 0,35 MON). À lire dans le bilan : 0 tx abandonnée,
-   0 revert, taps envoyés = taps on-chain. Résultat du 2026-09-19 : 60/60 tx, vu en 313 ms, finalisé en 850 ms (p50).
-   `pnpm drip` affiche les soldes ; `pnpm drip -- fund 2` recharge le distributeur ; `pnpm drip -- withdraw` rapatrie tout.
-   On peut aussi envoyer des MON du faucet directement à l'adresse du distributeur : le serveur relit son solde toutes les 5 s.
-4. **`pnpm prod`** : lance le serveur, ouvre un tunnel HTTPS `cloudflared` vers lui, inscrit l'URL du tunnel dans
-   Vercel (`VITE_SERVER_URL`) et redéploie le front (~20 s), puis affiche l'URL de l'écran géant avec son token.
-   Prérequis : `brew install cloudflared`. Le serveur tourne sur le laptop parce que la clé admin (les MON) ne doit
-   pas quitter la machine et que Vercel ne sait pas garder de WebSocket ouvert. L'URL d'un tunnel rapide change à
-   chaque lancement : relancer `pnpm prod` redéploie le front tout seul. `pnpm prod -- --no-deploy` = sans Vercel.
-   **Lancer une partie** : ouvre https://aura-farm-battle.vercel.app/screen (lien « Écran géant » depuis la page joueur),
-   tape le code régie (`ADMIN_TOKEN` du `.env`, affiché aussi par `pnpm prod`) → QR code + bouton « Lancer un round ».
-   Le code est gardé dans le navigateur et n'apparaît jamais dans l'URL projetée.
-5. Front sur Vercel : projet `aura-farm-battle` → https://aura-farm-battle.vercel.app (chaque push sur `main` redéploie).
-   Le projet est lié à la RACINE du dépôt (pas à `web/`) parce que `web/` importe `../shared/`, qui importe `viem`
-   installé à la racine ; tout le réglage est dans `vercel.json` (build `pnpm -C web build`, sortie `web/dist`,
-   réécriture de toutes les routes vers `index.html` pour que `/screen` et `/sprites` ne fassent pas 404).
-   Variables : `VITE_NETWORK=testnet` (déjà posée) et `VITE_SERVER_URL` (posée par `pnpm prod` à chaque lancement ;
-   à la main : `printf 'https://mon-serveur' | vercel env add VITE_SERVER_URL production && vercel --prod`).
-   Les `VITE_*` sont figées AU BUILD : changer une variable sans redéployer ne change rien.
-   L'URL du serveur doit être en `https://` (donc `wss://`) : la page Vercel est en HTTPS et le navigateur
-   bloque tout appel `http://` / `ws://` depuis une page HTTPS ("mixed content").
-   Un seul domaine stable pour le QR code : le wallet jetable vit dans le localStorage de CE domaine
-   (jamais les URL de preview `aura-farm-battle-xxxx.vercel.app`).
-
-## Voir les blocs
-
-- **Téléphone** (`web/src/BlockTrail.jsx`) : sous le personnage, une frise de 10 cases, une par bloc de 0,3 s,
-  qui défile en continu. Les cases contenant tes taps affichent `+N` et s'affirment quand le bloc avance dans
-  le consensus : contour pointillé jaune = proposé, jaune translucide = voté, jaune plein = finalisé.
-  La case en pointillés à droite compte les taps pas encore inclus. En dessous : « vu en X ms · finalisé en Y ms ».
-- **Écran géant** : les barres du ruban passent du blanc (proposé) au jaune (voté) puis au vert (finalisé).
-- Sur le testnet ces états viennent de `monadNewHeads`. Anvil ne les connaît pas : en local le serveur
-  les imite (voté à +1 bloc, finalisé à +2), ce qui correspond au pipeline de MonadBFT.
-
-L'interface est volontairement épurée (pas d'emojis, surfaces translucides, beaucoup d'espace) et utilise la palette Monad (`web/src/index.css`) : violet `#836EF9`, violet profond `#200052`,
-berry `#A0055D`, blanc cassé `#FBFAF9`, noir `#0E100F`.
+Recharger le distributeur pendant la journée : envoyer des MON du faucet à son adresse, ou `pnpm drip -- fund <MON>`.
+Le serveur relit son solde toutes les 5 s.
 
 ## Personnages
 
-Un brainrot par palier d'évolution (`STAGES` dans `shared/config.mjs`) : Chimpanzini Bananini →
-Ballerina Cappuccina → Lirili Larilà → Tung Tung Tung Sahur → Bombardiro Crocodilo → Tralalero Tralala.
-Ils sont dessinés en SVG dans `web/src/Brainrot.jsx` ; la galerie est sur `/sprites`.
-Pour utiliser une vraie image : dépose `web/public/sprites/<slug>.png` (ex. `tralalero-tralala.png`),
-elle remplace le dessin automatiquement. Vérifie que tu as le droit d'utiliser l'image.
+Chimpanzini Bananini → Ballerina Cappuccina → Lirili Larilà → Tung Tung Tung Sahur → Bombardiro Crocodilo →
+Tralalero Tralala, dessinés en SVG (`web/src/Brainrot.jsx`, galerie sur `/sprites`). Une vraie image déposée dans
+`web/public/sprites/<slug>.png` remplace automatiquement le dessin.
 
-## Budget MON
+## Équipe
 
-Mesuré (`node scripts/gas.mjs --local`) : un `tap()` = **50 182 gas**, identique pour 1 ou 20 taps agrégés.
-Sur Monad on paie la **gas limit** (51 800) × le prix (plancher 100 gwei) = **0,00518 MON par transaction**.
-Le prix ne peut pas descendre sous 100 gwei : le seul vrai levier est le **nombre de transactions**.
-
-| Mode (30 joueurs, round de 30 s) | tx / joueur / s | tx par round | coût |
-|---|---|---|---|
-| Finale : 1 tap = 1 tx (~6 taps/s) | 6 | 5 400 | ~28 MON |
-| Bloc : 1 tx par bloc (300 ms) | 3,3 | 3 000 | ~15,5 MON |
-| Éco : 1 tx / s (mode par défaut) | 1 | 900 | ~4,7 MON |
-
-Le mode se choisit par round depuis la régie de l'écran géant. `join()` coûte 0,011 MON par joueur, une fois.
-
-## Pièges Monad traités dans le code
-
-- **Reserve balance côté admin** (trouvé sur le testnet, invisible sur anvil) : un compte sous 10 MON ne peut envoyer de
-  la VALEUR qu'une fois tous les 3 blocs ; les autres transferts sont annulés à l'exécution, nonce consommé, sans erreur
-  RPC. Trente dotations d'affilée = une seule qui passe. D'où `AuraDrip.sol` : l'admin alimente le contrat une fois, puis
-  chaque dotation est un appel SANS valeur (l'admin ne paie que du gas) qui sert jusqu'à 40 joueurs en une tx.
-- Un `join()` envoyé trop tôt après la dotation peut être accepté par le RPC puis jamais inclus : le téléphone vérifie
-  l'inscription SUR LA CHAÎNE et réessaie (avec +1 gas pour changer le hash, sinon le RPC répond "déjà connue").
-- `cloudflared` utilise QUIC (UDP) par défaut, souvent bloqué : `pnpm prod` force `--protocol http2`.
-
-- Gas facturé sur la limite → limites en dur (`shared/config.mjs`), jamais d'`eth_estimateGas` en jeu.
-- Pas de mempool global → nonces gérés en local + chien de garde qui renvoie les tx perdues (`shared/pump.mjs`).
-- Compte fraîchement alimenté → attendre 3 blocs avant la première tx (état "Charging aura").
-- `monadLogs` republie chaque log à chaque état du bloc → dédoublonnage sur `(blockId, logIndex)` (`shared/feed.mjs`).
-- `block.timestamp` à la seconde → rounds et revenu passif comptés en `block.number`.
-- `eth_getLogs` limité à ~100 blocs → `snapshot()` on-chain pour reconstruire le classement en un appel.
-- Résultat officiel relu dans l'état `finalized` ~0,6 s après la fin du round.
+- Noé — [@noegng](https://github.com/noegng)
+- Théodore Roussard — [@TheodoreRoussard](https://github.com/TheodoreRoussard)
