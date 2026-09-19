@@ -4,6 +4,7 @@ import { BLOCK_MS, BONUS_GAP, BOOST_MULT, STAGES, UPGRADES, boostBlocks, levelsO
 import BlockTrail from './BlockTrail.jsx'
 import Brainrot from './Brainrot.jsx'
 import { createLive, createPlayer, projected, ranking, roundPhase } from './game.js'
+import { NAME_MAX } from '../../shared/names.mjs'
 import { SHOUTS, blip, fanfare, useStore } from './hooks.js'
 
 const liveStore = createLive()
@@ -27,6 +28,7 @@ export default function Play() {
   const [shout, setShout] = useState(null)
   const [toast, setToast] = useState(null)
   const [drawer, setDrawer] = useState(false)
+  const [editName, setEditName] = useState(false)
   const [squish, setSquish] = useState(0)
   const pid = useRef(0)
 
@@ -118,6 +120,9 @@ export default function Play() {
     navigator.vibrate?.(8)
   }
 
+  // Pseudo demandé au premier lancement (le wallet se prépare pendant ce temps), modifiable ensuite.
+  if ((!me.named || editName) && me.phase !== 'error')
+    return <NameForm initial={me.named ? me.name : ''} placeholder={me.name} onSubmit={(n) => playerStore.setName(n) && setEditName(false)} onCancel={me.named ? () => setEditName(false) : null} />
   if (me.phase === 'room') return <RoomForm onSubmit={(code) => playerStore.setRoom(code)} />
   if (me.phase === 'error')
     return (
@@ -144,8 +149,8 @@ export default function Play() {
   return (
     <div className="bg-monad relative mx-auto flex h-full max-w-md flex-col overflow-hidden px-6 pb-5 pt-6">
       <header className="flex items-center justify-between text-sm">
-        <p className="truncate rounded-full bg-ink/30 px-3 py-1.5 font-semibold">{me.name}</p>
-        <button onPointerDown={() => setDrawer(true)} className={`shrink-0 rounded-full px-3 py-1.5 font-bold tabular-nums ${rank === 1 ? 'bg-gold text-ink' : 'bg-ink/30'}`}>
+        <button onPointerDown={() => setEditName(true)} className="truncate rounded-full bg-offwhite/15 px-3 py-1.5 font-semibold">{me.name} ✏️</button>
+        <button onPointerDown={() => setDrawer(true)} className={`shrink-0 rounded-full px-3 py-1.5 font-bold tabular-nums ${rank === 1 ? 'bg-gold text-ink' : 'bg-offwhite/15'}`}>
           {rank ? `${MEDAL[rank - 1] ?? '🏁'} ${ordinal(rank)} / ${board.length}` : 'non classé'}
         </button>
       </header>
@@ -155,35 +160,39 @@ export default function Play() {
       {/* Le personnage : toute la zone est tappable, en multi-touch (pointerdown, pas click) */}
       <main className={`relative flex min-h-0 flex-1 touch-none flex-col items-center justify-center ${boostOn ? 'boost-on' : ''}`} onPointerDown={onTap}>
         {boostOn && (
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-col items-center">
+          <div className="pointer-events-none absolute right-0 top-0 z-10 flex flex-col items-end">
             <p className="font-display text-outline pop-soft text-3xl text-neon">🔥 AURA x{BOOST_MULT}</p>
-            <div className="mt-1 h-2 w-40 overflow-hidden rounded-full bg-ink/40"><div className="h-full rounded-full bg-neon" style={{ width: `${Math.min(100, (boostLeftMs / boostTotalMs) * 100)}%` }} /></div>
+            <div className="mt-1 h-2 w-32 overflow-hidden rounded-full bg-offwhite/20"><div className="h-full rounded-full bg-neon" style={{ width: `${Math.min(100, (boostLeftMs / boostTotalMs) * 100)}%` }} /></div>
           </div>
         )}
+        {(phase === 'live' || phase === 'countdown') && <MiniBoard board={board} me={me.address} />}
         {orb && (
           <button key={orb.id} onPointerDown={claimOrb} className="orb absolute z-20" style={{ left: `${orb.x}%`, top: `${orb.y}%` }} aria-label="Bonus aura">
-            <span className="orb-ring" />
+            <svg className="orb-ring" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" pathLength="100" /></svg>
             <span className="text-3xl">⚡</span>
           </button>
         )}
-        <p key={total} className="font-display text-outline bump text-8xl leading-none tabular-nums">{total.toLocaleString('fr-FR')}</p>
-        <p className="label mt-1">aura</p>
-        <div className="relative mt-5 flex h-56 w-56 items-center justify-center">
-          <div className="aura-halo" style={{ '--lvl': stage }} />
-          {stage >= 2 && <div className="aura-rays" style={{ '--lvl': stage }} />}
-          <div className={canTap ? 'bob' : ''}>
-            <div key={squish} className={`squish ${shout ? 'shake' : ''} ${canTap ? '' : 'opacity-40 grayscale'}`}>
-              <Brainrot stage={stage} outline={3} className="h-52 w-52 drop-shadow-[0_10px_18px_rgba(20,0,60,0.45)]" />
+        {/* Pendant le décompte et l'écran de résultat, l'overlay prend la place du personnage (pas de fond sombre par-dessus). */}
+        <div className={`flex flex-col items-center ${phase === 'countdown' || phase === 'over' ? 'invisible' : ''}`}>
+          <p key={total} className="font-display text-outline bump text-8xl leading-none tabular-nums">{total.toLocaleString('fr-FR')}</p>
+          <p className="label mt-1">aura</p>
+          <div className="relative mt-5 flex h-56 w-56 items-center justify-center">
+            <div className="aura-halo" style={{ '--lvl': stage }} />
+            {stage >= 2 && <AuraRays />}
+            <div className={canTap ? 'bob' : ''}>
+              <div key={squish} className={`squish ${shout ? 'shake' : ''} ${canTap ? '' : 'opacity-40 grayscale'}`}>
+                <Brainrot stage={stage} outline={3} className="h-52 w-52" />
+              </div>
             </div>
           </div>
+          <p className="font-display text-outline mt-4 text-2xl">{STAGES[stage].name}</p>
+          {next && (
+            <div className="mt-3 w-52">
+              <div className="h-3 overflow-hidden rounded-full bg-offwhite/15 p-0.5"><div className="stripes h-full rounded-full bg-neon transition-[width] duration-200" style={{ width: `${Math.max(4, stageProgress * 100)}%` }} /></div>
+              <p className="mt-1.5 text-center text-xs opacity-70">→ {next.name} à {Number(next.min).toLocaleString('fr-FR')}</p>
+            </div>
+          )}
         </div>
-        <p className="font-display text-outline mt-4 text-2xl">{STAGES[stage].name}</p>
-        {next && (
-          <div className="mt-3 w-52">
-            <div className="h-3 overflow-hidden rounded-full bg-ink/35 p-0.5"><div className="stripes h-full rounded-full bg-neon transition-[width] duration-200" style={{ width: `${Math.max(4, stageProgress * 100)}%` }} /></div>
-            <p className="mt-1.5 text-center text-xs opacity-70">→ {next.name} à {Number(next.min).toLocaleString('fr-FR')}</p>
-          </div>
-        )}
         {particles.map((p) => (
           <span key={p.id}>
             <span className="ripple" style={{ left: p.x, top: p.y }} />
@@ -229,7 +238,7 @@ function RoundStatus({ phase, live, rank }) {
   if (phase === 'over') text = live.final?.round === game.round ? `Round ${game.round} finalisé · tu finis ${rank ? `${rank}${rank === 1 ? 'er' : 'e'}` : 'non classé'}` : 'Terminé · finalisation en cours'
   return (
     <div className="mt-5">
-      <div className="h-3 overflow-hidden rounded-full bg-ink/35 p-0.5"><div className={`h-full rounded-full transition-[width] duration-300 ${pct < 20 ? 'bg-rosso' : 'bg-offwhite'}`} style={{ width: `${pct}%` }} /></div>
+      <div className="h-3 overflow-hidden rounded-full bg-offwhite/15 p-0.5"><div className={`h-full rounded-full transition-[width] duration-300 ${pct < 20 ? 'bg-rosso' : 'bg-offwhite'}`} style={{ width: `${pct}%` }} /></div>
       <p className={`mt-2 text-center text-xs ${phase === 'countdown' ? 'font-semibold text-neon' : 'opacity-80'}`}>{text}</p>
     </div>
   )
@@ -241,7 +250,7 @@ function Upgrade({ icon, label, detail, cost, maxed, aura, disabled, onBuy }) {
   const ok = !disabled && !maxed && aura >= cost
   const fill = Math.max(0, Math.min(1, aura / cost))
   return (
-    <button disabled={!ok} onClick={() => ok && onBuy()} className={`btn-chunky relative w-40 shrink-0 snap-start overflow-hidden px-3 py-3 text-left ${ok ? 'btn-ready' : 'bg-ink/35 text-offwhite/70'}`}>
+    <button disabled={!ok} onClick={() => ok && onBuy()} className={`btn-chunky relative w-40 shrink-0 snap-start overflow-hidden px-3 py-3 text-left ${ok ? 'btn-ready' : 'bg-offwhite/10 text-offwhite/75'}`}>
       {!ok && !maxed && <div className="absolute inset-y-0 left-0 bg-offwhite/10 transition-[width] duration-200" style={{ width: `${fill * 100}%` }} />}
       <div className="relative flex items-center gap-2">
         <span className="text-2xl leading-none">{icon}</span>
@@ -250,6 +259,45 @@ function Upgrade({ icon, label, detail, cost, maxed, aura, disabled, onBuy }) {
       <p className="relative mt-1.5 text-[11px] opacity-75">{detail}</p>
       <p className="font-display relative mt-1 text-lg tabular-nums">{maxed ? 'MAX' : `${cost.toLocaleString('fr-FR')} aura`}</p>
     </button>
+  )
+}
+
+// Rayons derrière le personnage, en SVG : un `mask-image` CSS animé s'affiche en grand carré noir
+// sur certains GPU de téléphone. Le fondu vient du dégradé radial du remplissage.
+const RAYS = Array.from({ length: 15 }, (_, i) => {
+  const pt = (deg) => `${(50 + 50 * Math.cos((deg * Math.PI) / 180)).toFixed(2)} ${(50 + 50 * Math.sin((deg * Math.PI) / 180)).toFixed(2)}`
+  return `M50 50L${pt(i * 24)}L${pt(i * 24 + 8)}Z`
+}).join('')
+const AuraRays = () => (
+  <svg viewBox="0 0 100 100" className="aura-rays" aria-hidden="true">
+    <defs>
+      <radialGradient id="ray-fade" cx="50%" cy="50%" r="50%">
+        <stop offset="0.22" stopColor="currentColor" stopOpacity="0" />
+        <stop offset="0.4" stopColor="currentColor" />
+        <stop offset="0.7" stopColor="currentColor" stopOpacity="0" />
+      </radialGradient>
+    </defs>
+    <path d={RAYS} fill="url(#ray-fade)" />
+  </svg>
+)
+
+/** Top 3 en direct, en petit dans le coin : les lignes glissent quand quelqu'un en double un autre. */
+const MINI_ROW_PX = 22
+function MiniBoard({ board, me }) {
+  const top = board.slice(0, 3)
+  if (!top.length) return null
+  return (
+    <ol className="pointer-events-none absolute left-0 top-0 z-10 w-40 text-xs" style={{ height: top.length * MINI_ROW_PX }}>
+      {top.map((p, i) => (
+        <li key={p.a} className="rank-row" style={{ transform: `translateY(${i * MINI_ROW_PX}px)` }}>
+          <div className={`flex h-5 items-center gap-1.5 rounded-full px-2 ${p.a === me ? 'bg-neon font-bold text-ink' : 'bg-offwhite/15'}`}>
+            <span>{MEDAL[i]}</span>
+            <span className="min-w-0 flex-1 truncate">{p.name}</span>
+            <span className="font-display tabular-nums">{p.score.toLocaleString('fr-FR')}</span>
+          </div>
+        </li>
+      ))}
+    </ol>
   )
 }
 
@@ -267,7 +315,7 @@ function RoundOverlay({ phase, live, rank, total, count, onBoard }) {
   if (phase === 'countdown') {
     const secs = Math.max(1, Math.ceil(((game.startBlock - head) * BLOCK_MS) / 1000))
     return (
-      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-monad-deep/70 backdrop-blur-sm">
+      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center">
         <p className="label">round {game.round} · prépare-toi</p>
         <p key={secs} className="count-in font-display text-outline text-[10rem] leading-none text-neon">{secs}</p>
       </div>
@@ -277,7 +325,7 @@ function RoundOverlay({ phase, live, rank, total, count, onBoard }) {
   if (phase === 'over') {
     const official = live.final?.round === game.round
     return (
-      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-monad-deep/85 px-6 text-center backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center px-6 text-center" onPointerDown={(e) => e.stopPropagation()}>
         <div className="rise-in flex flex-col items-center">
           <p className="label">round {game.round} {official ? 'finalisé' : 'terminé'}</p>
           <p className="mt-3 text-7xl leading-none">{rank && rank <= 3 ? MEDAL[rank - 1] : '🏁'}</p>
@@ -310,6 +358,29 @@ function Leaderboard({ board, me, onClose }) {
       </ol>
       <p className="label pt-4 text-center">toucher pour fermer</p>
     </div>
+  )
+}
+
+function NameForm({ initial, placeholder, onSubmit, onCancel }) {
+  const [name, setName] = useState(initial)
+  const submit = () => onSubmit(name.trim() || placeholder)
+  return (
+    <Center>
+      <Brainrot stage={1} outline={3} className="bob mb-4 h-28 w-28" />
+      <h1 className="font-display text-outline text-4xl leading-none">Ton pseudo</h1>
+      <p className="mt-3 text-sm opacity-70">C'est lui qui s'affiche sur l'écran géant</p>
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && submit()}
+        maxLength={NAME_MAX}
+        autoFocus
+        className="mt-8 w-64 rounded-2xl bg-offwhite/10 p-3 text-center text-xl font-bold outline-none placeholder:opacity-30"
+        placeholder={placeholder}
+      />
+      <button className="btn-chunky mt-4 bg-neon px-10 py-3 text-base font-bold text-ink" onPointerDown={submit}>C'est parti</button>
+      {onCancel && <button className="mt-4 text-sm opacity-60" onPointerDown={onCancel}>Annuler</button>}
+    </Center>
   )
 }
 

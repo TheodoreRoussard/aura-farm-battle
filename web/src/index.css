@@ -125,12 +125,9 @@ body {
 }
 .aura-rays {
   position: absolute; left: 50%; top: 50%; pointer-events: none;
-  width: calc(17rem + var(--lvl) * 2.2rem); aspect-ratio: 1;
+  width: 24rem; height: 24rem;
   translate: -50% -50%;
-  border-radius: 50%;
-  background: repeating-conic-gradient(from 0deg, rgba(255, 255, 255, 0.16) 0deg 8deg, transparent 8deg 24deg);
-  -webkit-mask-image: radial-gradient(circle, transparent 22%, #000 40%, transparent 70%);
-  mask-image: radial-gradient(circle, transparent 22%, #000 40%, transparent 70%);
+  color: rgba(255, 255, 255, 0.16); /* couleur des rayons (dégradé SVG en currentColor) */
   animation: spin 14s linear infinite;
 }
 @keyframes haloPulse { 50% { transform: translate(-50%, -50%) scale(1.08); opacity: 0.8; } }
@@ -187,11 +184,11 @@ body {
 
 /* ───────── Bonus x5 ───────── */
 .boost-on .aura-halo { background: radial-gradient(circle, rgba(255, 140, 60, 0.7) 0%, rgba(255, 93, 108, 0.3) 45%, transparent 70%); animation-duration: 0.5s; }
-.boost-on .aura-rays { background: repeating-conic-gradient(from 0deg, rgba(255, 200, 80, 0.32) 0deg 8deg, transparent 8deg 24deg); animation-duration: 3s; }
+.boost-on .aura-rays { color: rgba(255, 200, 80, 0.32); animation-duration: 3s; }
 @keyframes softPop { 0% { transform: scale(0.5); opacity: 0; } 60% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); } }
 .pop-soft { animation: softPop 0.3s ease-out; }
 
-/* Bulle de bonus : rebondit, un anneau se vide pendant les 4 s où elle reste touchable */
+/* Bulle de bonus : rebondit, un anneau (SVG, pas de mask CSS) se vide pendant les 4 s où elle reste touchable */
 .orb {
   width: 4.5rem; height: 4.5rem; margin: -2.25rem 0 0 -2.25rem; border-radius: 50%;
   display: grid; place-items: center; touch-action: none;
@@ -201,11 +198,6 @@ body {
 }
 @keyframes orbIn { from { transform: scale(0); } }
 @keyframes orbFloat { 50% { transform: translateY(-8px) scale(1.06); } }
-.orb-ring {
-  position: absolute; inset: -0.6rem; border-radius: 50%; pointer-events: none;
-  background: conic-gradient(rgba(255, 255, 255, 0.9) var(--p, 100%), transparent 0);
-  -webkit-mask: radial-gradient(circle, transparent 62%, #000 64%); mask: radial-gradient(circle, transparent 62%, #000 64%);
-  animation: ringDrain 4s linear forwards;
-}
-@property --p { syntax: '<percentage>'; inherits: false; initial-value: 100%; }
-@keyframes ringDrain { to { --p: 0%; } }
+.orb-ring { position: absolute; inset: -0.6rem; width: calc(100% + 1.2rem); height: calc(100% + 1.2rem); rotate: -90deg; pointer-events: none; }
+.orb-ring circle { fill: none; stroke: rgba(255, 255, 255, 0.9); stroke-width: 6; stroke-dasharray: 100; animation: ringDrain 4s linear forwards; }
+@keyframes ringDrain { to { stroke-dashoffset: 100; } }

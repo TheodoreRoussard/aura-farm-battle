@@ -160,33 +160,27 @@ contract AuraFarmTest is Test {
         assertEq(farm.rosterLength(), 2);
     }
 
-    function test_MegaAndComboMultiplyTaps() public {
+    function test_MultCompoundsOnePercentPerLevel() public {
         _start(0, 1000, 20);
-        _earn(alice, 200);
+        _earn(alice, 100);
         vm.startPrank(alice);
-        farm.buy(farm.KIND_MEGA()); // 150 → +5 par tap : 6 aura par tap
-        farm.tap(10);
-        assertEq(_player(alice).total, 200 + 60);
+        farm.buy(farm.KIND_MULT()); // 10 → x1,01
+        farm.buy(farm.KIND_MULT()); // 20 → x1,0201
+        assertEq(_player(alice).multBps, 10_201);
+        for (uint256 i = 0; i < 5; i++) farm.tap(20); // 100 taps x 1,0201 = 102,01
+        AuraFarm.Player memory p = _player(alice);
+        assertEq(p.total, 100 + 102);
+        assertEq(p.spent, 30);
         vm.stopPrank();
     }
 
-    function test_ComboAddsTenPercentPerLevel() public {
+    function test_MultFractionsCarryOverBetweenTaps() public {
         _start(0, 1000, 20);
-        _earn(alice, 400);
+        _earn(alice, 20);
         vm.startPrank(alice);
-        farm.buy(farm.KIND_COMBO()); // 400 → +10 %
-        farm.tap(10); // 10 taps x 1 x 110 / 100 = 11
-        assertEq(_player(alice).total, 400 + 11);
-        vm.stopPrank();
-    }
-
-    function test_FarmAddsEightPerBlock() public {
-        _start(0, 1000, 20);
-        _earn(alice, 260);
-        vm.startPrank(alice);
-        farm.buy(farm.KIND_FARM()); // 250 → +8 aura par bloc
-        vm.roll(vm.getBlockNumber() + 10);
-        assertEq(farm.totalOf(alice), 260 + 80);
+        farm.buy(farm.KIND_MULT()); // x1,01 : chaque tap vaut 1,01
+        for (uint256 i = 0; i < 100; i++) farm.tap(1); // 100 envois d'1 tap : les centièmes s'additionnent
+        assertEq(_player(alice).total, 20 + 101);
         vm.stopPrank();
     }
 
@@ -234,7 +228,7 @@ contract AuraFarmTest is Test {
         _start(0, 10, 20);
         _earn(alice, 200);
         vm.startPrank(alice);
-        farm.buy(farm.KIND_MEGA());
+        farm.buy(farm.KIND_MULT());
         farm.claimBonus();
         vm.stopPrank();
         vm.roll(vm.getBlockNumber() + 10);
@@ -243,7 +237,8 @@ contract AuraFarmTest is Test {
         vm.prank(alice);
         farm.tap(1);
         AuraFarm.Player memory p = _player(alice);
-        assertEq(p.mega, 0);
+        assertEq(p.mult, 0);
+        assertEq(p.multBps, 10_000);
         assertEq(p.boostUntil, 0);
         assertEq(p.total, 1);
     }

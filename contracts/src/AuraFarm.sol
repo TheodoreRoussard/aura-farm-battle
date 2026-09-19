@@ -16,7 +16,7 @@ contract AuraFarm {
     }
 
     // ───────────────────────── État joueur : 1 seul slot ─────────────────────────
-    // 48+48+32+32+16+16+16+8+8+8+8 = 240 bits. Chaque joueur écrit dans SON slot : aucun conflit
+    // 48+48+32+32+16+16+16+8+24+8+8 = 256 bits. Chaque joueur écrit dans SON slot : aucun conflit
     // entre joueurs, donc le cas idéal pour l'exécution parallèle de Monad. Toutes les améliorations
     // tiennent dans ce même slot : tap() ne paie toujours qu'une lecture et une écriture.
     struct Player {
@@ -27,18 +27,17 @@ contract AuraFarm {
         uint16 round; // round auquel appartiennent ces valeurs (0 = jamais inscrit)
         uint16 rate; // niveau "Brr Brr Patapim" : +1 aura passive par bloc
         uint16 power; // niveau "Cappuccino Assassino" : +1 aura par tap (démarre à 1)
-        uint8 mega; // niveau "Espresso Sigma" : +5 aura par tap
-        uint8 farm; // niveau "Ferme à aura" : +8 aura passive par bloc
-        uint8 combo; // niveau "Combo Mama Mia" : +10 % sur les gains de taps
+        uint8 mult; // niveau "Espresso Sigma" : chaque niveau multiplie les taps par 1,01
+        uint24 multBps; // multiplicateur courant en 1/10 000 (10 000 = x1) : calculé à l'achat, pas au tap
         uint8 magnet; // niveau "Aimant à bonus" : le bonus dure ~2 s de plus
+        uint8 frac; // centièmes d'aura en report (le multiplicateur donne des fractions)
     }
 
     uint8 public constant KIND_POWER = 0;
     uint8 public constant KIND_RATE = 1;
-    uint8 public constant KIND_MEGA = 2;
-    uint8 public constant KIND_FARM = 3;
-    uint8 public constant KIND_COMBO = 4;
-    uint8 public constant KIND_MAGNET = 5;
+    uint8 public constant KIND_MULT = 2;
+    uint8 public constant KIND_MAGNET = 3;
+    uint8 public constant MULT_MAX = 250; // x1,01^250 ≈ x12
 
     // Bonus "x5" : le front fait apparaître une bulle, le joueur la touche → claimBonus().
     uint32 public constant BOOST_BLOCKS = 17; // ~5 s
@@ -56,9 +55,9 @@ contract AuraFarm {
     event Joined(address indexed player);
     /// @dev Valeurs ABSOLUES (pas des deltas) : recevoir l'event 3 fois (Proposed/Voted/
     ///      Finalized via monadLogs) est sans effet, il suffit de garder le plus grand total.
-    /// @param extra mega | farm << 8 | combo << 16 | magnet << 24
+    /// @param extra mult | magnet << 8 | multBps << 16
     event PlayerUpdated(
-        address indexed player, uint32 round, uint64 total, uint64 spent, uint24 rate, uint24 power, uint32 extra, uint40 boostUntil
+        address indexed player, uint32 round, uint64 total, uint64 spent, uint24 rate, uint24 power, uint64 extra, uint40 boostUntil
     );
 
     error NotHost();
@@ -116,9 +115,11 @@ contract AuraFarm {
         if (block.number < g.startBlock || block.number >= g.endBlock) revert RoundNotLive();
         if (count == 0 || count > g.maxPerTx) revert BadCount();
         Player memory p = _settle(_players[msg.sender], g);
-        uint64 perTap = (uint64(p.power) + 5 * uint64(p.mega)) * (100 + 10 * uint64(p.combo)); // en centièmes d'aura
-        if (block.number < p.boostUntil) perTap *= BOOST_MULT;
-        p.total += uint48(uint64(count) * perTap / 100);
+        uint64 gain = uint64(count) * p.power * p.multBps / 100; // en centièmes d'aura
+        if (block.number < p.boostUntil) gain *= BOOST_MULT;
+        gain += p.frac;
+        p.total += uint48(gain / 100);
+        p.frac = uint8(gain % 100);
         _save(p);
     }
 
@@ -136,18 +137,11 @@ contract AuraFarm {
             if (p.rate >= 1000) revert MaxLevel();
             cost = rateCost(p.rate);
             p.rate += 1;
-        } else if (kind == KIND_MEGA) {
-            if (p.mega >= 50) revert MaxLevel();
-            cost = megaCost(p.mega);
-            p.mega += 1;
-        } else if (kind == KIND_FARM) {
-            if (p.farm >= 50) revert MaxLevel();
-            cost = farmCost(p.farm);
-            p.farm += 1;
-        } else if (kind == KIND_COMBO) {
-            if (p.combo >= 20) revert MaxLevel();
-            cost = comboCost(p.combo);
-            p.combo += 1;
+        } else if (kind == KIND_MULT) {
+            if (p.mult >= MULT_MAX) revert MaxLevel();
+            cost = multCost(p.mult);
+            p.mult += 1;
+            p.multBps = uint24(uint256(p.multBps) * 101 / 100); // x1,01 composé
         } else if (kind == KIND_MAGNET) {
             if (p.magnet >= 10) revert MaxLevel();
             cost = magnetCost(p.magnet);
@@ -181,16 +175,8 @@ contract AuraFarm {
         return 30 * (uint64(rate) + 1) * (uint64(rate) + 1); // 30, 120, 270...
     }
 
-    function megaCost(uint24 level) public pure returns (uint64) {
-        return 150 * (uint64(level) + 1) * (uint64(level) + 1); // 150, 600, 1350...
-    }
-
-    function farmCost(uint24 level) public pure returns (uint64) {
-        return 250 * (uint64(level) + 1) * (uint64(level) + 1); // 250, 1000, 2250...
-    }
-
-    function comboCost(uint24 level) public pure returns (uint64) {
-        return 400 * (uint64(level) + 1) * (uint64(level) + 1); // 400, 1600, 3600...
+    function multCost(uint24 level) public pure returns (uint64) {
+        return 10 * (uint64(level) + 1); // 10, 20, 30... : petits paliers qu'on enchaîne
     }
 
     function magnetCost(uint24 level) public pure returns (uint64) {
@@ -209,7 +195,7 @@ contract AuraFarm {
         if (p.round != uint16(g.round)) return 0;
         uint256 nowB = block.number < g.endBlock ? block.number : g.endBlock;
         if (nowB <= p.lastBlock) return p.total;
-        return uint64(p.total) + uint64((uint256(p.rate) + 8 * uint256(p.farm)) * (nowB - p.lastBlock));
+        return uint64(p.total) + uint64(uint256(p.rate) * (nowB - p.lastBlock));
     }
 
     function rosterLength() external view returns (uint256) {
@@ -252,12 +238,12 @@ contract AuraFarm {
             p.boostUntil = 0;
             p.rate = 0;
             p.power = 1;
-            p.mega = 0;
-            p.farm = 0;
-            p.combo = 0;
+            p.mult = 0;
+            p.multBps = 10_000;
             p.magnet = 0;
+            p.frac = 0;
         } else {
-            p.total += uint48((uint256(p.rate) + 8 * uint256(p.farm)) * (block.number - p.lastBlock));
+            p.total += uint48(uint256(p.rate) * (block.number - p.lastBlock));
         }
         p.lastBlock = uint32(block.number);
         return p;
@@ -265,7 +251,7 @@ contract AuraFarm {
 
     function _save(Player memory p) private {
         _players[msg.sender] = p;
-        uint32 extra = uint32(p.mega) | uint32(p.farm) << 8 | uint32(p.combo) << 16 | uint32(p.magnet) << 24;
+        uint64 extra = uint64(p.mult) | uint64(p.magnet) << 8 | uint64(p.multBps) << 16;
         emit PlayerUpdated(msg.sender, p.round, p.total, p.spent, p.rate, p.power, extra, p.boostUntil);
     }
 }

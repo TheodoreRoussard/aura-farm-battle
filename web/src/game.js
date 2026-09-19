@@ -4,7 +4,7 @@
 import { createPublicClient, encodeFunctionData, http } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { ABI, GAS, NETWORKS, boostBlocks, BLOCK_MS, levelsOf, passivePerBlock, tapValue } from '../../shared/config.mjs'
-import { nameOf } from '../../shared/names.mjs'
+import { cleanName, nameMessage, nameOf } from '../../shared/names.mjs'
 import { TxPump } from '../../shared/pump.mjs'
 
 const NETWORK = import.meta.env.VITE_NETWORK ?? 'testnet'
@@ -153,7 +153,8 @@ export function createPlayer(liveStore) {
     phase: 'boot', // boot → room? → funding → warming → joining → ready | error
     error: null,
     address,
-    name: nameOf(address),
+    name: localStorage.getItem('aura.name') || nameOf(address),
+    named: !!localStorage.getItem('aura.name'), // false → le téléphone demande un pseudo avant de jouer
     room: new URLSearchParams(location.search).get('room') ?? localStorage.getItem('aura.room') ?? '',
     balance: null, // MON du wallet jetable = "énergie"
     pendingTaps: 0, // taps pas encore envoyés
@@ -203,6 +204,19 @@ export function createPlayer(liveStore) {
     return body.skipped ? 'skipped' : 'sent'
   }
 
+  /** Envoie le pseudo choisi au serveur (signé par le wallet jetable). Sans effet si aucun pseudo choisi. */
+  async function sendName() {
+    if (!s.named) return
+    try {
+      const signature = await account.signMessage({ message: nameMessage(s.name) })
+      await fetch(`${SERVER_URL}/name`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ address, name: s.name, signature }),
+      })
+    } catch {} // le pseudo généré reste affiché : pas bloquant pour jouer
+  }
+
   async function boot() {
     try {
       setPhase('boot')
@@ -227,6 +241,7 @@ export function createPlayer(liveStore) {
         if (!(await pump.drain(10000))) throw new Error('join() non confirmé')
       }
       setPhase('ready')
+      sendName() // renvoyé à chaque démarrage : le serveur ne garde les pseudos qu'en mémoire
     } catch (e) {
       fail(e)
     }
@@ -294,6 +309,16 @@ export function createPlayer(liveStore) {
 
   Object.assign(store, {
     boot,
+    /** Choisit (ou change) son pseudo. Renvoie false si le pseudo est vide après nettoyage. */
+    setName(raw) {
+      const name = cleanName(raw)
+      if (!name) return false
+      Object.assign(s, { name, named: true })
+      localStorage.setItem('aura.name', name)
+      store.notify()
+      if (s.phase === 'ready') sendName()
+      return true
+    },
     setRoom(code) {
       s.room = code.trim().toUpperCase()
       boot()
