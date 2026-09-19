@@ -19,7 +19,7 @@ export default function BlockTrail({ live, me, inFlight }) {
   const last = [...me.myTxs].reverse().find((t) => t.finalMs !== null) ?? me.myTxs.at(-1)
 
   return (
-    <section>
+    <section className="shrink-0">
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1 overflow-hidden">
           {/* key={head} : la rangée est recréée à chaque bloc et glisse d'une case (voir .conveyor) */}
@@ -42,10 +42,15 @@ export default function BlockTrail({ live, me, inFlight }) {
           +{inFlight}
         </div>
       </div>
-      <p className="mt-2 text-center text-[11px] tabular-nums opacity-60">
-        {last
-          ? `+${last.count} dans le bloc ${last.block.toLocaleString('fr-FR')} · vu en ${last.seenMs ?? '?'} ms${last.finalMs !== null ? ` · finalisé en ${last.finalMs} ms` : ''}`
-          : 'Chaque case est un bloc de 0,3 s : tes taps y apparaissent.'}
+      <p className="mt-2 truncate text-center text-[11px] tabular-nums opacity-60 short:mt-1">
+        {/* Une seule ligne, même sur 360 px de large : le numéro de bloc saute en premier, pas les latences. */}
+        {last ? (
+          <>
+            +{last.count}<span className="max-[400px]:hidden"> dans le bloc {last.block.toLocaleString('fr-FR')}</span> · vu en {last.seenMs ?? '?'} ms{last.finalMs !== null ? ` · finalisé en ${last.finalMs} ms` : ''}
+          </>
+        ) : (
+          'Une case = un bloc de 0,3 s. Tes taps y apparaissent.'
+        )}
       </p>
     </section>
   )

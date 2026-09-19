@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { formatEther } from 'viem'
 import { BLOCK_MS, BONUS_GAP, BOOST_MULT, STAGES, UPGRADES, boostBlocks, levelsOf, stageOf, tapValue } from '../../shared/config.mjs'
 import BlockTrail from './BlockTrail.jsx'
@@ -88,7 +88,7 @@ export default function Play() {
     const schedule = (min, max) => {
       const wait = Math.max(min + Math.random() * (max - min), nextOk.current - Date.now())
       timer = setTimeout(() => {
-        setOrb({ id: Date.now(), x: 12 + Math.random() * 76, y: 8 + Math.random() * 68 })
+        setOrb({ id: Date.now(), x: 12 + Math.random() * 76, y: 26 + Math.random() * 50 }) // sous le bandeau du top 3
         timer = setTimeout(() => (setOrb(null), schedule(5000, 9000)), 4000)
       }, wait)
     }
@@ -149,9 +149,9 @@ export default function Play() {
   const stageProgress = next ? Math.min(1, (total - Number(STAGES[stage].min)) / (Number(next.min) - Number(STAGES[stage].min))) : 1
 
   return (
-    <div className="bg-monad relative mx-auto flex h-full max-w-md flex-col overflow-hidden px-6 pb-5 pt-6">
-      <header className="flex items-center justify-between text-sm">
-        <button onPointerDown={() => setEditName(true)} className="truncate rounded-full bg-offwhite/15 px-3 py-1.5 font-semibold">{me.name} ✏️</button>
+    <div className="bg-monad relative mx-auto flex h-full max-w-md flex-col overflow-hidden px-6 pb-5 pt-6 short:pb-3 short:pt-3">
+      <header className="flex items-center justify-between gap-2 text-sm">
+        <button onPointerDown={() => setEditName(true)} className="min-w-0 truncate rounded-full bg-offwhite/15 px-3 py-1.5 font-semibold">{me.name} ✏️</button>
         <button onPointerDown={() => setDrawer(true)} className={`shrink-0 rounded-full px-3 py-1.5 font-bold tabular-nums ${rank === 1 ? 'bg-gold text-ink' : 'bg-offwhite/15'}`}>
           {rank ? `${MEDAL[rank - 1] ?? '🏁'} ${ordinal(rank)} / ${board.length}` : 'non classé'}
         </button>
@@ -160,14 +160,20 @@ export default function Play() {
       <RoundStatus phase={phase} live={live} rank={rank} />
 
       {/* Le personnage : toute la zone est tappable, en multi-touch (pointerdown, pas click) */}
-      <main className={`relative flex min-h-0 flex-1 touch-none flex-col items-center justify-center ${boostOn ? 'boost-on' : ''}`} onPointerDown={onTap}>
-        {boostOn && (
-          <div className="pointer-events-none absolute right-0 top-0 z-10 flex flex-col items-end">
-            <p className="font-display text-outline pop-soft text-3xl text-neon">🔥 AURA x{BOOST_MULT}</p>
-            <div className="mt-1 h-2 w-32 overflow-hidden rounded-full bg-offwhite/20"><div className="h-full rounded-full bg-neon" style={{ width: `${Math.min(100, (boostLeftMs / boostTotalMs) * 100)}%` }} /></div>
+      <main className={`relative mt-2 flex min-h-0 flex-1 touch-none flex-col ${boostOn ? 'boost-on' : ''}`} onPointerDown={onTap}>
+        {/* Bandeau DANS le flux (plus en absolu par-dessus le compteur) : top 3 à gauche, bonus à droite.
+            Sa hauteur est réservée pendant tout le round, pour que le personnage ne saute pas quand un bonus démarre. */}
+        {(phase === 'live' || phase === 'countdown') && (
+          <div className="pointer-events-none flex shrink-0 items-start justify-between gap-2" style={{ minHeight: Math.max(2, Math.min(3, board.length)) * MINI_ROW_PX }}>
+            <MiniBoard board={board} me={me.address} />
+            {boostOn && (
+              <div className="flex min-w-0 flex-col items-end">
+                <p className="font-display text-outline pop-soft whitespace-nowrap text-xl text-neon">🔥 AURA x{BOOST_MULT}</p>
+                <div className="mt-1 h-2 w-24 overflow-hidden rounded-full bg-offwhite/20"><div className="h-full rounded-full bg-neon" style={{ width: `${Math.min(100, (boostLeftMs / boostTotalMs) * 100)}%` }} /></div>
+              </div>
+            )}
           </div>
         )}
-        {(phase === 'live' || phase === 'countdown') && <MiniBoard board={board} me={me.address} />}
         {orb && (
           <button key={orb.id} onPointerDown={claimOrb} className="orb absolute z-20" style={{ left: `${orb.x}%`, top: `${orb.y}%` }} aria-label="Bonus aura">
             <svg className="orb-ring" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" pathLength="100" /></svg>
@@ -175,8 +181,9 @@ export default function Play() {
           </button>
         )}
         {/* Pendant le décompte et l'écran de résultat, l'overlay prend la place du personnage (pas de fond sombre par-dessus). */}
+        <Fit className="flex-1">
         <div className={`flex flex-col items-center ${phase === 'countdown' || phase === 'over' ? 'invisible' : ''}`}>
-          <p key={total} className="font-display text-outline bump text-8xl leading-none tabular-nums">{total.toLocaleString('fr-FR')}</p>
+          <p key={total} className="font-display text-outline bump text-8xl leading-none tabular-nums tiny:text-7xl">{total.toLocaleString('fr-FR')}</p>
           <p className="label mt-1">aura</p>
           <div className="relative mt-5 flex h-56 w-56 items-center justify-center">
             <div className="aura-halo" style={{ '--lvl': stage }} />
@@ -187,14 +194,15 @@ export default function Play() {
               </div>
             </div>
           </div>
-          <p className="font-display text-outline mt-4 text-2xl">{STAGES[stage].name}</p>
+          <p className="font-display text-outline mt-4 whitespace-nowrap text-2xl tiny:mt-2">{STAGES[stage].name}</p>
           {next && (
             <div className="mt-3 w-52">
               <div className="h-3 overflow-hidden rounded-full bg-offwhite/15 p-0.5"><div className="stripes h-full rounded-full bg-neon transition-[width] duration-200" style={{ width: `${Math.max(4, stageProgress * 100)}%` }} /></div>
-              <p className="mt-1.5 text-center text-xs opacity-70">→ {next.name} à {Number(next.min).toLocaleString('fr-FR')}</p>
+              <p className="mt-1.5 whitespace-nowrap text-center text-xs opacity-70 tiny:hidden">→ {next.name} à {Number(next.min).toLocaleString('fr-FR')}</p>
             </div>
           )}
         </div>
+        </Fit>
         {particles.map((p) => (
           <span key={p.id}>
             <span className="ripple" style={{ left: p.x, top: p.y }} />
@@ -207,20 +215,27 @@ export default function Play() {
 
       <BlockTrail live={live} me={me} inFlight={inFlight} />
 
-      <section className="-mx-6 mt-5 flex snap-x gap-3 overflow-x-auto px-6 pb-2 [scrollbar-width:none]">
+      <section className="-mx-6 mt-5 flex shrink-0 snap-x gap-3 overflow-x-auto px-6 pb-2 short:mt-3 [scrollbar-width:none]">
         {UPGRADES.map((u) => {
           const level = lv[u.key]
           return <Upgrade key={u.kind} icon={u.icon} label={u.label} detail={u.detail(level)} cost={Number(u.cost(level))} maxed={level >= u.max} total={total} confirmed={confirmed} disabled={!canTap || me.buying} onBuy={() => playerStore.buy(u.kind)} />
         })}
       </section>
 
-      <footer className="mt-5 flex items-center justify-between text-xs">
+      <footer className="mt-5 flex shrink-0 items-center justify-between gap-3 whitespace-nowrap text-xs short:mt-2">
         <span className="flex gap-4">
           <button className="font-semibold underline decoration-offwhite/40 underline-offset-4" onPointerDown={() => setDrawer(true)}>Hall of Shame</button>
           <a className="underline decoration-offwhite/40 underline-offset-4 opacity-70" href={`/screen?room=${encodeURIComponent(me.room)}`} target="_blank" rel="noreferrer">Écran géant</a>
         </span>
-        <p className="tabular-nums opacity-60" title={me.balance !== null ? `${formatEther(me.balance)} MON` : ''}>
-          {live.connected ? `${txLeft === null ? '…' : txLeft > 999 ? '999+' : txLeft} tx restantes${me.lastLatency ? ` · ${me.lastLatency} ms` : ''}` : 'reconnexion…'}
+        <p className="min-w-0 truncate tabular-nums opacity-60" title={me.balance !== null ? `${formatEther(me.balance)} MON` : ''}>
+          {live.connected ? (
+            <>
+              {txLeft === null ? '…' : txLeft > 999 ? '999+' : txLeft} tx restantes
+              {me.lastLatency ? <span className="max-[400px]:hidden"> · {me.lastLatency} ms</span> : null}
+            </>
+          ) : (
+            'reconnexion…'
+          )}
         </p>
       </footer>
 
@@ -242,9 +257,39 @@ function RoundStatus({ phase, live, rank }) {
   }
   if (phase === 'over') text = live.final?.round === game.round ? `Round ${game.round} finalisé · tu finis ${rank ? `${rank}${rank === 1 ? 'er' : 'e'}` : 'non classé'}` : 'Terminé · finalisation en cours'
   return (
-    <div className="mt-5">
+    <div className="mt-5 shrink-0 short:mt-3">
       <div className="h-3 overflow-hidden rounded-full bg-offwhite/15 p-0.5"><div className={`h-full rounded-full transition-[width] duration-300 ${pct < 20 ? 'bg-rosso' : 'bg-offwhite'}`} style={{ width: `${pct}%` }} /></div>
       <p className={`mt-2 text-center text-xs ${phase === 'countdown' ? 'font-semibold text-neon' : 'opacity-80'}`}>{text}</p>
+    </div>
+  )
+}
+
+// Centre son contenu et le RÉDUIT (jamais ne l'agrandit) pour qu'il tienne dans la place disponible.
+// Sur un téléphone peu haut (barres du navigateur visibles : ~550 px), compteur + personnage + nom sont plus hauts
+// que la zone : sans ça ils débordent sur l'en-tête et sur la frise de blocs. La mesure se fait sur les tailles de
+// mise en page (offsetHeight ignore le transform) et seulement quand une taille change, pas à chaque tap.
+function Fit({ className = '', children, ...rest }) {
+  const box = useRef(null)
+  const inner = useRef(null)
+  const [scale, setScale] = useState(1)
+  useLayoutEffect(() => {
+    const measure = () => {
+      const b = box.current
+      const i = inner.current
+      if (!b || !i || !i.offsetHeight || !i.offsetWidth) return
+      // 8 px de marge en haut et en bas : « tient tout juste » colle visuellement aux éléments voisins.
+      const next = Math.min(1, (b.clientHeight - 16) / i.offsetHeight, b.clientWidth / i.offsetWidth)
+      setScale((prev) => (Math.abs(prev - next) > 0.005 ? next : prev))
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(box.current)
+    observer.observe(inner.current)
+    measure()
+    return () => observer.disconnect()
+  }, [])
+  return (
+    <div ref={box} className={`flex min-h-0 min-w-0 items-center justify-center ${className}`} {...rest}>
+      <div ref={inner} className="shrink-0" style={{ transform: `scale(${scale})` }}>{children}</div>
     </div>
   )
 }
@@ -257,13 +302,13 @@ function Upgrade({ icon, label, detail, cost, maxed, total, confirmed, disabled,
   const ok = !disabled && !maxed && confirmed >= cost
   const fill = Math.max(0, Math.min(1, total / cost))
   return (
-    <button disabled={!ok} onClick={() => ok && onBuy()} className={`btn-chunky relative w-40 shrink-0 snap-start overflow-hidden px-3 py-3 text-left ${ok ? 'btn-ready' : 'bg-offwhite/10 text-offwhite/75'}`}>
+    <button disabled={!ok} onClick={() => ok && onBuy()} className={`btn-chunky relative w-40 shrink-0 snap-start overflow-hidden px-3 py-3 text-left short:py-2 ${ok ? 'btn-ready' : 'bg-offwhite/10 text-offwhite/75'}`}>
       {!ok && !maxed && <div className="absolute inset-y-0 left-0 bg-offwhite/10 transition-[width] duration-200" style={{ width: `${fill * 100}%` }} />}
       <div className="relative flex items-center gap-2">
         <span className="text-2xl leading-none">{icon}</span>
         <p className="text-[13px] font-bold leading-tight">{label}</p>
       </div>
-      <p className="relative mt-1.5 text-[11px] opacity-75">{detail}</p>
+      <p className="relative mt-1.5 text-[11px] opacity-75 tiny:hidden">{detail}</p>
       <p className="font-display relative mt-1 text-lg tabular-nums">{maxed ? 'MAX' : ok ? 'Débloquer !' : `🔒 ${cost.toLocaleString('fr-FR')}`}</p>
     </button>
   )
@@ -294,7 +339,7 @@ function MiniBoard({ board, me }) {
   const top = board.slice(0, 3)
   if (!top.length) return null
   return (
-    <ol className="pointer-events-none absolute left-0 top-0 z-10 w-40 text-xs" style={{ height: top.length * MINI_ROW_PX }}>
+    <ol className="relative w-36 shrink-0 text-xs" style={{ height: top.length * MINI_ROW_PX }}>
       {top.map((p, i) => (
         <li key={p.a} className="rank-row" style={{ transform: `translateY(${i * MINI_ROW_PX}px)` }}>
           <div className={`flex h-5 items-center gap-1.5 rounded-full px-2 ${p.a === me ? 'bg-neon font-bold text-ink' : 'bg-offwhite/15'}`}>
@@ -322,18 +367,20 @@ function RoundOverlay({ phase, live, rank, total, count, onBoard }) {
   if (phase === 'countdown') {
     const secs = Math.max(1, Math.ceil(((game.startBlock - head) * BLOCK_MS) / 1000))
     return (
-      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center">
-        <p className="label">round {game.round} · prépare-toi</p>
-        <p key={secs} className="count-in font-display text-outline text-[10rem] leading-none text-neon">{secs}</p>
-      </div>
+      <Fit className="absolute inset-0 z-10 overflow-hidden">
+        <div className="flex flex-col items-center">
+          <p className="label whitespace-nowrap">round {game.round} · prépare-toi</p>
+          <p key={secs} className="count-in font-display text-outline text-[10rem] leading-none text-neon">{secs}</p>
+        </div>
+      </Fit>
     )
   }
-  if (go) return <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"><p className="go-in font-display text-outline text-8xl text-neon">GO !</p></div>
+  if (go) return <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center overflow-hidden"><p className="go-in font-display text-outline text-8xl text-neon">GO !</p></div>
   if (phase === 'over') {
     const official = live.final?.round === game.round
     return (
-      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center px-6 text-center" onPointerDown={(e) => e.stopPropagation()}>
-        <div className="rise-in flex flex-col items-center">
+      <Fit className="absolute inset-0 z-10 text-center" onPointerDown={(e) => e.stopPropagation()}>
+        <div className="rise-in flex flex-col items-center px-6">
           <p className="label">round {game.round} {official ? 'finalisé' : 'terminé'}</p>
           <p className="mt-3 text-7xl leading-none">{rank && rank <= 3 ? MEDAL[rank - 1] : '🏁'}</p>
           <p className="font-display text-outline mt-3 text-5xl">{rank ? `${ordinal(rank)} sur ${count}` : 'non classé'}</p>
@@ -341,7 +388,7 @@ function RoundOverlay({ phase, live, rank, total, count, onBoard }) {
           {!official && <p className="mt-3 animate-pulse text-xs opacity-60">confirmation on-chain…</p>}
           <button onPointerDown={onBoard} className="btn-chunky mt-8 bg-offwhite px-8 py-3 text-sm font-bold text-ink">Voir le classement</button>
         </div>
-      </div>
+      </Fit>
     )
   }
   return null

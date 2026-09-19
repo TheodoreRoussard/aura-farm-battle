@@ -1,6 +1,10 @@
 @import 'tailwindcss';
 
 /* Palette officielle Monad. Le jaune "neon" sert uniquement d'accent (mes blocs, progression). */
+/* Écran peu haut : téléphone avec les barres du navigateur visibles (iPhone SE ≈ 550 px, petit Android ≈ 560 px). */
+@custom-variant short (@media (max-height: 700px));
+@custom-variant tiny (@media (max-height: 600px));
+
 @theme {
   --font-display: 'Lilita One', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --color-gold: #ffd34d;
@@ -20,6 +24,10 @@ html,
 body,
 #root {
   height: 100%;
+}
+/* 100 % = grande hauteur sur Safari iOS : le bas de page passe SOUS la barre d'outils. dvh = hauteur réellement visible. */
+#root {
+  height: 100dvh;
 }
 body {
   margin: 0;
